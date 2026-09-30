@@ -1,0 +1,11 @@
+{
+  "name": "medidores-app",
+  "version": "0.1.0",
+  "description": "Medidores de la mesa: app de Mac con servidor integrado",
+  "main": "main.js",
+  "private": true,
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "ws": "^8.21.3"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "medidores",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Medidores de la mesa: servidores (sala y escenario) y app de Mac",
+  "scripts": {
+    "build:mac": "bash app/build.sh"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.5.1",
+    "sharp": "^0.35.5"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Medidores de la mesa",
+  "short_name": "Medidores",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#141925",
+  "theme_color": "#141925",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -1,0 +1,1969 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141925">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Medidores</title>
+<style>
+  /* Sin fuentes remotas: en un bolo puede no haber internet. */
+  :root {
+    --font: "Barlow Condensed", "Roboto Condensed", "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+    --stage: #141925;
+    --panel: #1c2332;
+    --well: #0a0e16;
+    --ink: #e7eaf1;
+    --muted: #8690a4;
+    --line: #2a3243;
+    --sig: #37c77c;
+    --warm: #f1b43b;
+    --hot: #f24a3a;
+    --g-ch: #72c2dc;
+    --g-bus: #b39af3;
+    --g-mtx: #e49fc6;
+    --g-fx: #8fd6a8;
+    --g-main: #e7eaf1;
+    --strip: 34px;
+    --head: 26px;
+    --clip: 8px;
+    --foot: 38px;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  :root[data-theme="light"] {
+    --stage: #e9ecf2;
+    --panel: #ffffff;
+    --well: #151a26;
+    --ink: #121722;
+    --muted: #4f586b;
+    --line: #c9cfdb;
+    --g-ch: #1d7fa3;
+    --g-bus: #6a4fcf;
+    --g-mtx: #b0417f;
+    --g-fx: #2d8a54;
+    --g-main: #121722;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--stage);
+    color: var(--ink);
+    font-family: var(--font);
+    font-stretch: condensed;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: minmax(0, 1fr); /* nada puede ensanchar la página más que la pantalla */
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--g-ch); outline-offset: 2px; }
+
+  /* Barra superior */
+  .bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px 6px calc(12px + env(safe-area-inset-left, 0px));
+    padding-right: calc(10px + env(safe-area-inset-right, 0px));
+  }
+  .status { display: flex; align-items: center; gap: 8px; min-width: 14px; flex: 1; font-size: 16px; } /* el punto de conexión siempre visible */
+  .status .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+  .status[data-state="connected"] .dot { background: var(--sig); }
+  .status[data-state="searching"] .dot, .status[data-state="connecting"] .dot { background: var(--warm); animation: blink 1s steps(2) infinite; }
+  .status[data-state="lost"] .dot, .status[data-state="error"] .dot, .status[data-state="offline"] .dot { background: var(--hot); }
+  .status span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .icon-btn {
+    background: none; border: 1px solid var(--line); border-radius: 8px;
+    width: 38px; height: 34px; display: grid; place-items: center; cursor: pointer; flex: none;
+  }
+  .icon-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+
+  /* Tablero */
+  .board {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    min-height: 0;
+    padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+  }
+  .scale {
+    position: relative; width: 30px;
+    margin: calc(var(--head) + var(--clip) + 4px) 0 var(--foot);
+    font-size: 11px; color: var(--muted);
+  }
+  .scale span { position: absolute; right: 4px; transform: translateY(50%); font-variant-numeric: tabular-nums; }
+  .scroller { overflow-x: auto; overflow-y: hidden; display: flex; gap: 14px; padding-right: 10px; scroll-snap-type: x proximity; }
+  .pinned { display: flex; padding: 0 10px 0 12px; border-left: 1px solid var(--line); background: var(--stage); }
+  .group { display: flex; flex-direction: column; scroll-snap-align: start; }
+  .group[hidden] { display: none; }
+  .group-head {
+    height: var(--head); font-size: 14px; font-weight: 600; color: var(--gc);
+    border-top: 3px solid var(--gc); padding-top: 3px; white-space: nowrap;
+  }
+  .strips { display: flex; gap: 3px; flex: 1; min-height: 0; }
+
+  .strip {
+    width: var(--strip); display: flex; flex-direction: column; align-items: stretch;
+    background: none; border: 0; padding: 0; cursor: pointer; min-height: 0;
+  }
+  .clip { height: var(--clip); margin-bottom: 4px; border-radius: 2px; background: var(--line); }
+  .clip.on { background: var(--hot); box-shadow: 0 0 8px var(--hot); }
+  .meter {
+    position: relative; flex: 1; overflow: hidden; border-radius: 3px; margin: 0 5px;
+    background: linear-gradient(to top, var(--sig) 0%, var(--sig) 58%, var(--warm) 62%, var(--warm) 86%, var(--hot) 90%);
+  }
+  .meter .cover {
+    position: absolute; inset: 0; background: var(--well);
+    transform-origin: top; transform: scaleY(1); will-change: transform;
+  }
+  .meter .hold { position: absolute; inset: 0; will-change: transform; transform: translateY(100%); }
+  .meter .hold::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: #f4f6fa; }
+  .meter .ticks { position: absolute; inset: 0; pointer-events: none; }
+  .meter .ticks i { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,.08); }
+  .no-hold .meter .hold { display: none; }
+  .foot { height: var(--foot); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 4px; }
+  .foot .num { font-size: 13px; font-weight: 600; line-height: 1.1; }
+  .foot .name {
+    font-size: 11px; color: var(--muted); line-height: 1.2; max-width: 100%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .strip.muted-sig .foot .num { color: var(--muted); }
+
+  /* Filtros */
+  .filters {
+    display: flex; gap: 6px; overflow-x: auto;
+    padding: 8px calc(10px + env(safe-area-inset-right, 0px)) 10px calc(10px + env(safe-area-inset-left, 0px));
+  }
+  .chip {
+    border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
+    padding: 5px 13px; font-size: 15px; white-space: nowrap; cursor: pointer;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--gc); }
+  .chip[aria-pressed="false"] { opacity: .45; }
+  .chip[aria-pressed="false"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--gc); }
+
+  /* Aviso y ajustes */
+  .toast {
+    position: fixed; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    transform: translate(-50%, 12px); opacity: 0; transition: opacity .15s, transform .15s;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 14px; font-size: 16px; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  dialog {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px; width: min(360px, 92vw); font-size: 17px;
+  }
+  dialog::backdrop { background: rgba(5, 8, 14, .6); }
+  dialog h2 { margin: 0 0 12px; font-size: 22px; font-weight: 600; }
+  #settings label { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  #settings label small { display: block; color: var(--muted); font-size: 13px; }
+  dialog input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--sig); flex: none; }
+  dialog .actions { display: flex; gap: 8px; margin-top: 16px; }
+  dialog .actions button { flex: 1; padding: 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--stage); cursor: pointer; }
+  dialog .actions button.primary { background: var(--sig); border-color: var(--sig); color: #07130c; font-weight: 600; }
+  dialog .actions button[hidden] { display: none; }
+  .status { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+
+  .setup-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .setup-head h2 { margin: 0; }
+  .setup-head select, #optLang { font: inherit; font-size: 15px; padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
+
+  /* Conexión con la mesa */
+  #setup { width: min(420px, 94vw); }
+  .brands { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .brands button {
+    padding: 12px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--stage);
+    font-size: 17px; cursor: pointer;
+  }
+  .brands button[aria-checked="true"] { border-color: var(--sig); box-shadow: inset 0 0 0 1px var(--sig); }
+  .hint { color: var(--muted); font-size: 15px; line-height: 1.35; margin: 12px 0 4px; min-height: 2.7em; }
+  .field { display: block; margin-top: 12px; font-size: 15px; color: var(--muted); }
+  .field input {
+    display: block; width: 100%; margin-top: 5px; padding: 10px 12px; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--stage); color: var(--ink);
+    font: inherit; font-size: 19px; font-variant-numeric: tabular-nums;
+  }
+  .field[hidden], .ports[hidden] { display: none; }
+  .ports { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .error { color: var(--hot); font-size: 15px; min-height: 1.2em; margin: 10px 0 0; }
+  .qr { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center; }
+  .qr img { width: 150px; height: 150px; border-radius: 8px; background: #fff; }
+  .qr p { margin: 0 0 8px; }
+  .qr code { font-size: 16px; word-break: break-all; }
+  .addr { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .addr p { margin: 0 0 6px; font-size: 14px; color: var(--muted); }
+  .addr button { display: block; width: 100%; text-align: left; margin-top: 4px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--stage); cursor: pointer; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .addr button[aria-pressed="true"] { border-color: var(--sig); box-shadow: inset 0 0 0 1px var(--sig); }
+  .addr button small { color: var(--muted); margin-left: 6px; }
+  .qr small { display: block; color: var(--muted); font-size: 14px; margin-top: 8px; line-height: 1.3; }
+  .raw {
+    position: fixed; inset: auto 0 0 0; max-height: 45%; overflow: auto;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); font-size: 13px;
+  }
+  .raw[hidden] { display: none; }
+  .raw h3 { margin: 6px 0; font-size: 15px; }
+  .raw .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 2px 8px; font-variant-numeric: tabular-nums; }
+  .raw .grid span b { color: var(--muted); font-weight: 400; margin-right: 4px; }
+  .empty { align-self: center; justify-self: center; grid-column: 1 / -1; color: var(--muted); font-size: 18px; text-align: center; padding: 20px; max-width: 30ch; }
+  /* Modo control */
+  .modes { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: none; }
+  .modes[hidden] { display: none; }
+  .modes button { background: none; border: 0; padding: 6px 12px; font-size: 16px; cursor: pointer; color: var(--muted); }
+  .modes button[aria-pressed="true"] { background: var(--panel); color: var(--ink); font-weight: 600; }
+  .icon-btn[hidden] { display: none; }
+  #lockBtn[aria-pressed="false"] { border-color: var(--warm); color: var(--warm); }
+  body[data-mode="control"] .board, body[data-mode="control"] .filters, body[data-mode="control"] #clearPeaks { display: none; }
+  .ctrl { display: none; min-height: 0; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; padding: 0 env(safe-area-inset-right, 0px) 8px env(safe-area-inset-left, 0px); }
+  body[data-mode="control"] .ctrl { display: grid; }
+  .cscroller { min-width: 0; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 0 8px 0 10px; }
+  .cpinned { display: flex; gap: 6px; padding: 0 10px; border-left: 1px solid var(--line); }
+  .cs {
+    width: 84px; flex: none; display: flex; flex-direction: column; gap: 6px; min-height: 0;
+    background: var(--panel); border-radius: 10px; padding: 7px 5px 6px; border-top: 3px solid transparent;
+  }
+  .cs.master { border-top-color: var(--g-main); }
+  .cs-name { text-align: center; line-height: 1.15; min-height: 34px; }
+  .cs-name b { display: block; font-size: 15px; }
+  .cs { position: relative; }
+  .cs-name { padding-top: 13px; }
+  .cs-link { position: absolute; top: 3px; right: 3px; padding: 0 4px; border-radius: 4px; font-size: 9px; font-weight: 600; font-style: normal; line-height: 13px; background: var(--g-bus); color: #140c2a; white-space: nowrap; }
+  .cs-link[hidden] { display: none; }
+  .cs-name span { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cs-gain { display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "val val" "dn up"; gap: 3px 4px; }
+  .cs-gain output { grid-area: val; }
+  .cs-gain .gdn { grid-area: dn; }
+  .cs-gain .gup { grid-area: up; }
+  .cs-gain button { height: 30px; border: 1px solid var(--line); background: var(--stage); border-radius: 6px; padding: 0; cursor: pointer; font-size: 17px; line-height: 1; touch-action: manipulation; }
+  .cs-gain output { text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .cs-gain output small { font-size: 11px; color: var(--muted); margin-left: 3px; }
+  .nogain .cs-gain { visibility: hidden; }
+  /* El ON queda separado de los botones de ganancia para no tocarlo sin querer */
+  .cs-on {
+    margin-top: 12px; position: relative; overflow: visible;
+    height: 32px; border-radius: 6px; border: 1px solid var(--line); background: var(--stage);
+    font-weight: 600; font-size: 15px; color: var(--muted); cursor: pointer; touch-action: manipulation;
+  }
+  .cs-on::before { content: ""; position: absolute; left: 4px; right: 4px; top: -8px; height: 1px; background: var(--line); }
+  .cs-on[aria-pressed="true"] { background: var(--warm); border-color: var(--warm); color: #231703; }
+  .cs-fader { position: relative; flex: 1; min-height: 120px; display: grid; grid-template-columns: 7px 1fr 19px; gap: 3px; touch-action: pan-x; cursor: ns-resize; }
+  /* Escala del fader en dB, como la impresa junto a los faders de la mesa */
+  .cs-scale { position: relative; margin: 11px 0; font-size: 9.5px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+  .cs-scale span { position: absolute; right: 0; transform: translateY(50%); line-height: 1; white-space: nowrap; }
+  .cs-track .tk { position: absolute; left: 50%; width: 14px; margin-left: -7px; height: 1px; background: var(--muted); opacity: .55; }
+  .cs-scale span.z { color: var(--ink); font-weight: 700; }
+  .cs-meter { position: relative; overflow: hidden; border-radius: 2px; background: linear-gradient(to top, var(--sig) 0%, var(--sig) 58%, var(--warm) 62%, var(--warm) 86%, var(--hot) 90%); margin: 11px 0; }
+  .cs-meter .cover { position: absolute; inset: 0; background: var(--well); transform-origin: top; will-change: transform; }
+  .cs-track { position: relative; margin: 11px 0; }
+  .cs-track::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--well); }
+  .cs-track .zero { position: absolute; left: 4px; right: 4px; height: 1px; background: var(--muted); opacity: .6; }
+  .cs-cap {
+    position: absolute; left: 50%; top: 0; width: 38px; height: 22px; margin: -11px 0 0 -19px;
+    border-radius: 5px; background: #d9dde6; box-shadow: 0 2px 5px rgba(0,0,0,.45); will-change: transform;
+  }
+  .cs-cap::after { content: ""; position: absolute; left: 6px; right: 6px; top: 10px; height: 2px; background: #1a1f2a; }
+  .cs.dragging .cs-cap { background: #ffffff; box-shadow: 0 0 0 2px var(--sig), 0 2px 8px rgba(0,0,0,.5); }
+  .cs-val { text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; height: 18px; }
+  body.locked .cs-gain button, body.locked .cs-on { opacity: .45; }
+  body.locked .cs-cap { background: #8f96a5; }
+  body.locked .cs-fader { cursor: not-allowed; }
+  .ctrl-empty { align-self: center; color: var(--muted); font-size: 18px; padding: 20px; }
+  .cs-gain.ext output small { color: var(--g-ch); font-weight: 600; }
+  .shure-list { margin: 8px 0 0; padding: 0; list-style: none; font-size: 15px; }
+  .shure-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .shure-list li span { flex: 1; }
+  .shure-list .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--hot); flex: none; }
+  .shure-list .dot.on { background: var(--sig); }
+  .shure-list button, .shure-form button { border: 1px solid var(--line); background: var(--stage); border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 15px; }
+  .shure-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .shure-form input { width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: var(--stage); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; margin-top: 3px; }
+  .shure-form .ip { grid-column: 1 / -1; }
+  .shure-form button { grid-column: 1 / -1; }
+  .shure-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.35; }
+  #settings select { font: inherit; font-size: 16px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
+  #settings .sub { margin: 16px 0 0; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+  /* Registro del bolo */
+  #reportBtn { position: relative; }
+  #reportBtn .badge {
+    position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: var(--hot); color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center;
+  }
+  #reportBtn .badge[hidden] { display: none; }
+  #report { width: min(560px, 94vw); max-height: 88vh; }
+  #report h3 { margin: 16px 0 6px; font-size: 18px; font-weight: 600; }
+  #report h3:first-of-type { margin-top: 4px; }
+  .clip-list { list-style: none; margin: 0; padding: 0; max-height: 34vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; }
+  .clip-list li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 15px; font-variant-numeric: tabular-nums; }
+  .clip-list li:last-child { border-bottom: 0; }
+  .clip-list li time { color: var(--muted); }
+  .clip-list li b { color: var(--hot); font-weight: 600; }
+  .clip-list li.new { background: color-mix(in srgb, var(--hot) 12%, transparent); }
+  .clip-list .empty-row { display: block; color: var(--muted); }
+  .rep-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .rep-actions button, .rep-actions a {
+    flex: 1; min-width: 130px; text-align: center; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--stage); color: var(--ink); font-size: 15px; cursor: pointer; text-decoration: none;
+  }
+  .chart-wrap { position: relative; border: 1px solid var(--line); border-radius: 9px; padding: 6px; touch-action: pan-y; }
+  #histChart { display: block; width: 100%; height: 190px; }
+  .chart-read { font-size: 14px; font-variant-numeric: tabular-nums; min-height: 1.3em; margin: 6px 0 0; color: var(--muted); }
+  .chart-legend { display: flex; gap: 14px; font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .chart-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 5px; }
+  .sel-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .sel-chip, .pick-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--stage); font-size: 14px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+  .sel-chip i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .sel-edit { border-style: dashed; color: var(--muted); }
+  .picker { border: 1px solid var(--line); border-radius: 9px; padding: 8px; margin-bottom: 8px; max-height: 38vh; overflow-y: auto; }
+  .picker[hidden] { display: none; }
+  .picker h4 { margin: 8px 0 5px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .picker h4:first-child { margin-top: 0; }
+  .picker .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .pick-chip[aria-pressed="true"] { border-color: var(--sig); box-shadow: inset 0 0 0 1px var(--sig); }
+  .picker .done { display: block; width: 100%; margin-top: 10px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 15px; }
+  .chk { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); margin: 0 0 8px; cursor: pointer; }
+  .chk input { width: 18px; height: 18px; accent-color: var(--sig); }
+  .rep-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .rep-head h2 { margin: 0; }
+  .rep-head button { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 14px; cursor: pointer; }
+  .rep-head button svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+  .rep-head button[hidden] { display: none; }
+  /* En el ordenador: panel flotante que se arrastra por el título y no bloquea lo de detrás */
+  #report.floating { position: fixed; margin: 0; z-index: 40; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
+  #report.floating .rep-head { cursor: move; user-select: none; touch-action: none; }
+  /* Ventana aparte (?vista=registro): solo el registro, a toda la ventana */
+  body.report-only .board, body.report-only .ctrl, body.report-only .filters,
+  body.report-only .bar .icon-btn, body.report-only .modes { display: none !important; }
+  body.report-only #report { position: static; grid-row: 2 / 4; width: auto; max-width: none; max-height: none; height: auto;
+    margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; overflow: auto; padding: 16px 20px; }
+  body.report-only #histChart { height: max(220px, 42vh); }
+  body.report-only .clip-list { max-height: 30vh; }
+  .rep-note { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.35; }
+
+  /* Vista grande: un canal o todo su grupo (link / pareja estéreo) */
+  .big { position: fixed; inset: 0; z-index: 50; background: var(--stage); display: flex; flex-direction: column;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px)); cursor: pointer; }
+  .big[hidden] { display: none; }
+  .big-grid { flex: 1; min-height: 0; display: grid; gap: 10px; }
+  .big-card { container-type: size; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(28px, 26%) minmax(0, 1fr); gap: 4cqi;
+    background: var(--panel); border-radius: 12px; padding: 10px; }
+  .big-grid.one .big-card { background: none; padding: 0; }
+  .big-meter { position: relative; overflow: hidden; border-radius: 8px;
+    background: linear-gradient(to top, var(--sig) 0%, var(--sig) 58%, var(--warm) 62%, var(--warm) 86%, var(--hot) 90%); }
+  .big-meter .cover { position: absolute; inset: 0; background: var(--well); transform-origin: top; will-change: transform; }
+  .big-meter .hold { position: absolute; inset: 0; will-change: transform; }
+  .big-meter .hold::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: #f4f6fa; }
+  .big-info { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  .big-name { font-size: clamp(14px, min(9cqi, 11cqh), 54px); font-weight: 600; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .big-val { font-size: clamp(20px, min(17cqi, 26cqh), 190px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; margin: .15em 0; white-space: nowrap; }
+  .big-val small { font-size: .3em; font-weight: 500; color: var(--muted); margin-left: .15em; }
+  .big-peak { font-size: clamp(12px, min(7cqi, 9cqh), 44px); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .big-clip { display: inline-block; margin-top: .5em; padding: .15em .6em; border-radius: 8px; background: var(--hot); color: #fff; font-weight: 700; font-size: clamp(12px, min(6cqi, 8cqh), 32px); }
+  .big-clip[hidden] { display: none; }
+  .big-hint { text-align: center; color: var(--muted); font-size: 14px; padding-top: 8px; }
+
+  /* Capas del modo Control */
+  .layers { display: none; gap: 6px; overflow-x: auto; align-items: center;
+    padding: 8px calc(10px + env(safe-area-inset-right, 0px)) 10px calc(10px + env(safe-area-inset-left, 0px)); }
+  body[data-mode="control"] .layers { display: flex; }
+  .layers button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 13px; font-size: 15px; white-space: nowrap; cursor: pointer; flex: none; }
+  .layers button[aria-pressed="true"] { border-color: var(--sig); box-shadow: inset 0 0 0 1px var(--sig); font-weight: 600; }
+  .layers .edit { padding: 6px 10px; }
+  .layers .sep { flex: 1; min-width: 6px; }
+  .layers .stereo[aria-pressed="false"] { opacity: .5; text-decoration: line-through; }
+  .cpinned[hidden] { display: none; }
+  .cs.g-ch { border-top-color: var(--g-ch); }
+  .cs.g-bus { border-top-color: var(--g-bus); }
+  .cs.g-mtx { border-top-color: var(--g-mtx); }
+  .cs[hidden] { display: none; }
+  .custom-empty { align-self: center; color: var(--muted); font-size: 16px; padding: 20px; max-width: 32ch; line-height: 1.4; }
+  #customDlg { width: min(560px, 94vw); max-height: 90vh; }
+  #customDlg .picker { max-height: 58vh; }
+  .cu-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; color: var(--muted); }
+  .cu-top button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); cursor: pointer; }
+  .pick-chip .ord { display: inline-grid; place-items: center; min-width: 18px; height: 18px; border-radius: 9px; background: var(--sig); color: #07130c; font-size: 11px; font-weight: 700; }
+
+  /* Mensajes */
+  #msgBtn { position: relative; }
+  #msgBtn .badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: var(--g-ch); color: #06222c; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; }
+  #msgBtn .badge[hidden] { display: none; }
+  #msgDlg { width: min(520px, 94vw); max-height: 90vh; }
+  .msg-link { font-size: 13px; margin: 0 0 8px; color: var(--muted); }
+  .msg-link.off { color: var(--hot); }
+  .msg-list { list-style: none; margin: 0 0 10px; padding: 0; max-height: 32vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; }
+  .msg-list li { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .msg-list li:last-child { border-bottom: 0; }
+  .msg-list li.mine { background: color-mix(in srgb, var(--g-ch) 8%, transparent); }
+  .msg-list .meta { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .msg-list .body { margin-top: 2px; }
+  .msg-list .body b { color: var(--g-ch); font-weight: 600; margin-right: 6px; }
+  .msg-list .ack { font-size: 12px; color: var(--sig); margin-top: 2px; }
+  .msg-list .empty-row { color: var(--muted); }
+  .msg-quick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 8px 0; }
+  .msg-quick button, .msg-compose button { padding: 10px 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 15px; cursor: pointer; }
+  .msg-compose { display: flex; gap: 6px; }
+  .msg-compose input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
+  .msg-compose button { background: var(--sig); border-color: var(--sig); color: #07130c; font-weight: 600; }
+  .msg-ch { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .msg-ch select { flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
+  /* Aviso de mensaje recibido: grande, hasta pulsar Visto */
+  .msg-banner { position: fixed; left: 10px; right: 10px; top: calc(58px + env(safe-area-inset-top, 0px)); z-index: 60; /* debajo de la barra: sus botones siguen accesibles */
+    background: var(--panel); border: 2px solid var(--g-ch); border-radius: 14px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; align-items: center; max-width: 640px; margin: 0 auto; }
+  .msg-banner[hidden] { display: none; }
+  .msg-banner .who { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+  .msg-banner .txt { font-size: clamp(20px, 5.5vw, 30px); font-weight: 700; line-height: 1.15; }
+  .msg-banner .ch { display: block; font-size: .7em; color: var(--g-ch); margin-top: 2px; }
+  .msg-banner button { padding: 12px 18px; border-radius: 10px; border: 0; background: var(--g-ch); color: #06222c; font-weight: 700; font-size: 17px; cursor: pointer; }
+  /* Line check */
+  #lcDlg { width: min(560px, 94vw); max-height: 92vh; }
+  .lc-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .lc-top .prog { flex: 1; min-width: 160px; font-size: 15px; }
+  .lc-top .prog small { display: block; color: var(--warm); font-size: 13px; }
+  .lc-top button { padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 15px; cursor: pointer; }
+  .lc-top button.primary { background: var(--sig); border-color: var(--sig); color: #07130c; font-weight: 600; }
+  .lc-top button[hidden] { display: none; }
+  .lc-hint { font-size: 14px; color: var(--muted); margin: 0 0 8px; line-height: 1.35; }
+  .lc-list { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; }
+  .lc-list li { display: grid; grid-template-columns: minmax(0, 1fr) 60px auto; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 15px; cursor: pointer; }
+  .lc-list li:last-child { border-bottom: 0; }
+  .lc-list li[hidden] { display: none; }
+  .lc-list .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lc-list .lvl { display: block; height: 8px; border-radius: 4px; background: var(--well); overflow: hidden; }
+  .lc-list .lvl i { display: block; height: 100%; width: 0; background: var(--sig); }
+  .lc-list .st { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); text-align: right; }
+  .lc-list li.ok .st { color: var(--sig); }
+  .lc-list li.noise .st { color: var(--warm); }
+  .lc-sum { font-size: 14px; margin: 8px 0 0; }
+  .set-btn { display: block; width: 100%; margin: 4px 0 10px; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 16px; cursor: pointer; }
+  #settings .set-field { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  #settings .set-field[hidden] { display: none; }
+  .set-field small { display: block; color: var(--muted); font-size: 13px; }
+  .set-field input { display: block; width: 100%; margin-top: 6px; font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
+
+  @media (max-width: 420px) {
+    .bar { gap: 4px; padding-left: calc(8px + env(safe-area-inset-left, 0px)); padding-right: calc(6px + env(safe-area-inset-right, 0px)); }
+    .icon-btn { width: 32px; height: 32px; }
+    .icon-btn svg { width: 18px; height: 18px; }
+    .modes button { padding: 6px 6px; font-size: 14px; }
+  }
+  @media (max-width: 480px) {
+    .bar { gap: 6px; }
+    .modes button { padding: 6px 8px; font-size: 15px; }
+    .cs { width: 76px; }
+    .cs-cap { width: 34px; margin-left: -17px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) { .status .dot { animation: none !important; } .toast { transition: none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <button class="status" id="status" data-state="offline" data-i18n-aria="a.changeMixer"><span class="dot"></span><span id="statusText" role="status" data-i18n="status.initial"></span></button>
+  <div class="modes" id="modes" hidden>
+    <button data-mode="meters" aria-pressed="true" data-i18n="mode.meters"></button>
+    <button data-mode="control" aria-pressed="false" data-i18n="mode.control"></button>
+  </div>
+  <button class="icon-btn" id="clearPeaks" data-i18n-aria="btn.resetClips">
+    <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg>
+  </button>
+  <button class="icon-btn" id="reportBtn" data-i18n-aria="a.report">
+    <svg viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M7 16l4-5 3 3 5-7"/></svg>
+    <span class="badge" id="reportBadge" hidden></span>
+  </button>
+  <button class="icon-btn" id="msgBtn" data-i18n-aria="a.msgs">
+    <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>
+    <span class="badge" id="msgBadge" hidden></span>
+  </button>
+  <button class="icon-btn" id="lockBtn" data-i18n-aria="a.unlock" aria-pressed="true" hidden>
+    <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path id="lockShackle" d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+  </button>
+  <button class="icon-btn" id="openPhone" data-i18n-aria="a.phone" hidden>
+    <svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+  </button>
+  <button class="icon-btn" id="openSettings" data-i18n-aria="a.settings">
+    <svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+  </button>
+</header>
+
+<main class="board" id="board">
+  <div class="scale" id="scale"></div>
+  <div class="scroller" id="scroller"></div>
+  <div class="pinned" id="pinned"></div>
+</main>
+
+<main class="ctrl" id="ctrl">
+  <div class="cscroller" id="cscroller"></div>
+  <div class="cpinned" id="cpinned"></div>
+</main>
+
+<nav class="filters" id="filters" data-i18n-aria="a.groups"></nav>
+<nav class="layers" id="layers" data-i18n-aria="ly.aria"></nav>
+
+<div class="toast" id="toast"></div>
+
+<section class="raw" id="raw" hidden data-i18n-aria="a.raw"></section>
+
+<dialog id="settings">
+  <h2 data-i18n="set.title"></h2>
+  <button class="set-btn" id="openLc" data-i18n="lc.open"></button>
+  <label><span data-i18n="set.lang"></span><select id="optLang"></select></label>
+  <label class="set-field"><span data-i18n="set.name"></span><small data-i18n="set.nameHint"></small><input id="optName" maxlength="24" autocomplete="off"></label>
+  <label class="set-field" id="salaHostRow" hidden><span data-i18n="set.salaHost"></span><small data-i18n="set.salaHostHint"></small><input id="optSalaHost" autocomplete="off" spellcheck="false"></label>
+  <label><span><span data-i18n="set.hold"></span><small data-i18n="set.holdHint"></small></span><input type="checkbox" id="optHold" checked></label>
+  <label><span><span data-i18n="set.light"></span><small data-i18n="set.lightHint"></small></span><input type="checkbox" id="optLight"></label>
+  <label><span><span data-i18n="set.raw"></span><small data-i18n="set.rawHint"></small></span><input type="checkbox" id="optRaw"></label>
+  <label id="mpRow" hidden><span><span data-i18n="set.mp"></span><small data-i18n="set.mpHint"></small></span>
+    <select id="optMp"><option value="PreHPF" data-i18n="mp.PreHPF"></option><option value="PreFader" data-i18n="mp.PreFader"></option><option value="PostOn" data-i18n="mp.PostOn"></option></select></label>
+  <div id="ctrlSettings" hidden>
+    <p class="sub" data-i18n="set.control"></p>
+    <label><span><span data-i18n="set.limit"></span><small data-i18n="set.limitHint"></small></span>
+      <select id="optLimit"><option value="0">0 dB</option><option value="5">+5 dB</option><option value="10">+10 dB</option></select></label>
+    <label><span><span data-i18n="set.autolock"></span><small data-i18n="set.autolockHint"></small></span><input type="checkbox" id="optAutolock" checked></label>
+    <p class="sub" data-i18n="set.shure"></p>
+    <p class="shure-hint" data-i18n="set.shureHint"></p>
+    <ul class="shure-list" id="shureList"></ul>
+    <div class="shure-form">
+      <div class="ip"><span data-i18n="sh.ip"></span><input id="shIp" inputmode="decimal" placeholder="192.168.0.50" autocomplete="off"></div>
+      <div><span class="shch" data-n="1"></span><input id="shC1" inputmode="numeric" data-i18n-ph="sh.phMixer"></div>
+      <div><span class="shch" data-n="2"></span><input id="shC2" inputmode="numeric" data-i18n-ph="sh.phMixer"></div>
+      <div><span class="shch" data-n="3"></span><input id="shC3" inputmode="numeric" placeholder="—"></div>
+      <div><span class="shch" data-n="4"></span><input id="shC4" inputmode="numeric" placeholder="—"></div>
+      <button id="shAdd" data-i18n="sh.add"></button>
+    </div>
+    <p class="error" id="shErr"></p>
+  </div>
+  <div class="actions">
+    <button id="changeMixer" data-i18n="btn.changeMixer"></button>
+    <button id="closeSettings" data-i18n="btn.close"></button>
+  </div>
+</dialog>
+
+<dialog id="setup" aria-labelledby="setupTitle">
+  <div class="setup-head"><h2 id="setupTitle" data-i18n="setup.title"></h2><select id="setupLang" data-i18n-aria="set.lang"></select></div>
+  <div class="brands" role="radiogroup" data-i18n-aria="a.brands">
+    <button role="radio" data-driver="auto">Behringer / Midas</button>
+    <button role="radio" data-driver="yamaha">Yamaha</button>
+    <button role="radio" data-driver="digico">DiGiCo</button>
+    <button role="radio" data-driver="sim" data-i18n="setup.sim"></button>
+  </div>
+  <p class="hint" id="brandHint" data-i18n="setup.pick"></p>
+  <label class="field" id="ipField"><span id="ipLabel" data-i18n="setup.ip"></span>
+    <input id="ipInput" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.1.20">
+  </label>
+  <div class="ports" id="digicoFields" hidden>
+    <label class="field"><span data-i18n="setup.sendPort"></span><input id="sendPort" inputmode="numeric" placeholder="8000"></label>
+    <label class="field"><span data-i18n="setup.listenPort"></span><input id="listenPort" inputmode="numeric" placeholder="9000"></label>
+  </div>
+  <p class="error" id="setupError" role="alert"></p>
+  <div class="actions">
+    <button id="setupCancel" data-i18n="btn.cancel"></button>
+    <button id="setupConnect" class="primary" data-i18n="btn.connect"></button>
+  </div>
+</dialog>
+
+<dialog id="phone" aria-labelledby="phoneTitle">
+  <h2 id="phoneTitle" data-i18n="phone.title"></h2>
+  <div class="qr">
+    <img src="qr.svg" data-i18n-alt="phone.qrAlt">
+    <div>
+      <p data-i18n="phone.scan"></p>
+      <code id="phoneUrl"></code>
+      <small data-i18n="phone.sameWifi"></small>
+    </div>
+  </div>
+  <div class="addr" id="phoneAddrs" hidden>
+    <p data-i18n="phone.other"></p>
+    <div id="phoneAddrList"></div>
+  </div>
+  <div class="actions"><button id="closePhone" data-i18n="btn.close"></button></div>
+</dialog>
+
+<dialog id="report" aria-labelledby="repTitle">
+  <div class="rep-head" id="repHead" data-i18n-title="rep.drag">
+    <h2 id="repTitle" data-i18n="rep.title"></h2>
+    <button id="repPopout" hidden><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg><span data-i18n="rep.popout"></span></button>
+  </div>
+  <h3 data-i18n="rep.clips"></h3>
+  <label class="chk"><input type="checkbox" id="clipFilter"><span data-i18n="rep.filterClips"></span></label>
+  <ul class="clip-list" id="clipList"></ul>
+  <div class="rep-actions">
+    <button id="clearLog" data-i18n="rep.clearLog"></button>
+    <a href="registro.csv" download data-i18n="rep.csv"></a>
+  </div>
+  <h3 id="histTitle" data-i18n="rep.history"></h3>
+  <div class="sel-row" id="selRow"></div>
+  <div class="picker" id="picker" hidden></div>
+  <div class="chart-wrap"><canvas id="histChart"></canvas></div>
+  <div class="chart-legend" id="chartLegend"></div>
+  <p class="chart-read" id="chartRead"></p>
+  <p class="rep-note"><span data-i18n="rep.note"></span> <span data-i18n="rep.shared"></span></p>
+  <div class="rep-actions">
+    <button id="clearHistory" data-i18n="rep.clearHistory"></button>
+    <a href="historial.csv" id="histCsv" download data-i18n="rep.csv"></a>
+  </div>
+  <div class="actions"><button id="closeReport" data-i18n="btn.close"></button></div>
+</dialog>
+
+<div class="big" id="big" hidden role="dialog">
+  <div class="big-grid" id="bigGrid"></div>
+  <div class="big-hint" data-i18n="big.hint"></div>
+</div>
+
+<dialog id="customDlg" aria-labelledby="cuTitle">
+  <h2 id="cuTitle" data-i18n="cu.title"></h2>
+  <p class="lc-hint" data-i18n="cu.hint"></p>
+  <div class="cu-top"><span id="cuCount"></span><button id="cuClear" data-i18n="cu.clear"></button></div>
+  <div class="picker" id="cuPicker"></div>
+  <div class="actions"><button id="cuDone" data-i18n="rep.done"></button></div>
+</dialog>
+
+<dialog id="msgDlg" aria-labelledby="msgTitle">
+  <h2 id="msgTitle" data-i18n="msgs.title"></h2>
+  <p class="msg-link" id="msgLink" hidden></p>
+  <ul class="msg-list" id="msgList"></ul>
+  <label class="msg-ch"><span data-i18n="msgs.channel"></span><select id="msgCh"></select></label>
+  <div class="msg-quick" id="msgQuick"></div>
+  <div class="msg-compose"><input id="msgText" maxlength="140" data-i18n-ph="msgs.placeholder" autocomplete="off"><button id="msgSend" data-i18n="msgs.send"></button></div>
+  <div class="actions"><button id="closeMsgs" data-i18n="btn.close"></button></div>
+</dialog>
+
+<div class="msg-banner" id="msgBanner" hidden role="alert">
+  <div class="who" id="bannerWho"></div>
+  <div class="txt" id="bannerTxt"></div>
+  <button id="bannerOk" data-i18n="msgs.seen"></button>
+</div>
+
+<dialog id="lcDlg" aria-labelledby="lcTitle">
+  <h2 id="lcTitle" data-i18n="lc.title"></h2>
+  <div class="lc-top">
+    <div class="prog" id="lcProg"></div>
+    <button id="lcStart" class="primary"></button>
+    <button id="lcStop" data-i18n="lc.stop"></button>
+  </div>
+  <p class="lc-hint" id="lcHint"></p>
+  <label class="chk"><input type="checkbox" id="lcPending"><span data-i18n="lc.onlyPending"></span></label>
+  <ul class="lc-list" id="lcList"></ul>
+  <p class="lc-sum" id="lcSum"></p>
+  <div class="actions"><button id="closeLc" data-i18n="btn.close"></button></div>
+</dialog>
+
+<script>window.APP_VERSION = '__APP_VERSION__'; window.APP_ROLE = '__APP_ROLE__';</script>
+<script src="i18n.js?v=__APP_VERSION__"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const REPORT_ONLY = new URLSearchParams(location.search).get('vista') === 'registro';
+  // 'sala' = versión completa; 'escenario' = solo lectura (se enlaza con la app de sala para mensajes y line check).
+  const ROLE = window.APP_ROLE === 'escenario' ? 'escenario' : 'sala';
+  if (ROLE === 'escenario') document.body.classList.add('role-escenario');
+  if (REPORT_ONLY) document.body.classList.add('report-only');
+  applyI18n();
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('medidores:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('medidores:' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // Escala tipo consola: más resolución cerca de 0 dBFS.
+  const PTS = [[-60, 0], [-48, .1], [-36, .24], [-24, .42], [-18, .53], [-12, .66], [-6, .82], [-3, .91], [0, 1]];
+  function pos(db) {
+    if (db <= PTS[0][0]) return 0;
+    for (let i = 1; i < PTS.length; i++) {
+      const [d1, p1] = PTS[i], [d0, p0] = PTS[i - 1];
+      if (db <= d1) return p0 + (p1 - p0) * (db - d0) / (d1 - d0);
+    }
+    return 1;
+  }
+  const TICKS = [0, -3, -6, -12, -18, -24, -36, -48];
+  const GROUP_COLORS = { ch: '--g-ch', bus: '--g-bus', mtx: '--g-mtx', fxr: '--g-fx', fxs: '--g-fx', aux: '--g-fx', main: '--g-main' };
+  const FALL = 26;      // dB por segundo de caída
+  const HOLD_MS = 1600; // retención de pico
+  const CLIP_DB = 0; // igual que la DM7 (verificado con tono): se enciende al llegar a 0 dB
+
+  let strips = [];   // estado plano de todas las tiras
+  let groupStart = []; // índice plano donde empieza cada grupo
+  let layoutKey = '';
+  let hidden = new Set(store.get('hidden', []));
+
+  // --- Escala lateral
+  function drawScale() {
+    $('scale').innerHTML = TICKS.map((d) => `<span style="bottom:${pos(d) * 100}%">${d}</span>`).join('');
+  }
+
+  // --- Construcción del tablero a partir del layout de la mesa
+  function buildLayout(l) {
+    const key = JSON.stringify(l.groups.map((g) => [g.id, g.strips.length]));
+    if (key === layoutKey) return relabel(l);
+    layoutKey = key;
+    strips = [];
+    groupStart = [];
+    const scroller = $('scroller'), pinned = $('pinned'), filters = $('filters');
+    scroller.innerHTML = pinned.innerHTML = filters.innerHTML = '';
+    const ticks = '<div class="ticks">' + TICKS.slice(1).map((d) => `<i style="bottom:${pos(d) * 100}%"></i>`).join('') + '</div>';
+
+    l.groups.forEach((g, gi) => {
+      groupStart[gi] = strips.length;
+      const color = `var(${GROUP_COLORS[g.id] || '--g-ch'})`;
+      const sec = document.createElement('section');
+      sec.className = 'group';
+      sec.style.setProperty('--gc', color);
+      sec.dataset.id = g.id;
+      sec.innerHTML = `<div class="group-head">${esc(groupName(g))}</div><div class="strips"></div>`;
+      const row = sec.querySelector('.strips');
+      g.strips.forEach((s) => {
+        const el = document.createElement('button');
+        el.className = 'strip';
+        el.innerHTML = `<div class="clip"></div><div class="meter"><div class="cover"></div><div class="hold"></div>${ticks}</div>
+          <div class="foot"><span class="num"></span><span class="name"></span></div>`;
+        const st = {
+          el, cover: el.querySelector('.cover'), hold: el.querySelector('.hold'), clipEl: el.querySelector('.clip'),
+          num: el.querySelector('.num'), name: el.querySelector('.name'),
+          target: -90, disp: -90, peak: -90, peakAt: 0, maxSeen: -90, clip: false, lastCover: -1, lastHold: -1,
+          group: g.name, label: '', gid: g.id, idx: g.strips.indexOf(s),
+        };
+        // Mantener pulsado: vista grande del canal. Toque corto: borrar su pico.
+        let lpTimer = null, lpX = 0, lpY = 0;
+        el.addEventListener('pointerdown', (e) => {
+          lpX = e.clientX; lpY = e.clientY; st.longPressed = false;
+          clearTimeout(lpTimer);
+          if (ROLE === 'escenario') return; // la vista grande es de la versión de sala
+          lpTimer = setTimeout(() => { st.longPressed = true; openBig(st); }, 550);
+        });
+        el.addEventListener('pointermove', (e) => { if (Math.hypot(e.clientX - lpX, e.clientY - lpY) > 12) clearTimeout(lpTimer); });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => el.addEventListener(ev, () => clearTimeout(lpTimer)));
+        el.addEventListener('contextmenu', (e) => e.preventDefault());
+        el.addEventListener('click', () => {
+          if (st.longPressed) { st.longPressed = false; return; }
+          st.clip = false; st.clipEl.classList.remove('on');
+          toast(t('toast.peak', { label: st.label, v: st.maxSeen <= -89 ? t('peak.none') : st.maxSeen.toFixed(1) + ' dB' }));
+          st.maxSeen = st.target;
+          st.peak = st.disp;
+          sendClear({ g: st.gid, i: st.idx });
+        });
+        strips.push(st);
+        row.appendChild(el);
+      });
+      (g.id === 'main' ? pinned : scroller).appendChild(sec);
+
+      if (g.id !== 'main') {
+        const chip = document.createElement('button');
+        chip.className = 'chip';
+        chip.style.setProperty('--gc', color);
+        chip.textContent = groupName(g);
+        const apply = () => { chip.setAttribute('aria-pressed', String(!hidden.has(g.id))); sec.hidden = hidden.has(g.id); };
+        chip.addEventListener('click', () => {
+          hidden.has(g.id) ? hidden.delete(g.id) : hidden.add(g.id);
+          store.set('hidden', [...hidden]);
+          apply();
+        });
+        apply();
+        filters.appendChild(chip);
+      }
+    });
+    relabel(l);
+  }
+
+  let lastLayout = null;
+  // Nombre de grupo: en español, el que da la mesa (p. ej. "Mix" en Yamaha); en otros idiomas, la traducción.
+  function groupName(g) {
+    if (LANG === 'es' || !I18N[LANG]['grp.' + g.id]) return g.name;
+    return t('grp.' + g.id);
+  }
+  let meterPoint = null;
+  function refreshGroupHeads() {
+    document.querySelectorAll('.group[data-id]').forEach((sec) => {
+      const g = lastLayout && lastLayout.groups.find((x) => x.id === sec.dataset.id);
+      if (!g) return;
+      sec.querySelector('.group-head').textContent = groupName(g) + (g.id === 'ch' && meterPoint ? ` · ${t('mp.' + meterPoint)}` : '');
+    });
+  }
+  function relabel(l) {
+    lastLayout = l;
+    refreshGroupHeads();
+    relabelControl();
+    l.groups.forEach((g, gi) => g.strips.forEach((s, si) => {
+      const st = strips[groupStart[gi] + si];
+      if (!st) return;
+      st.num.textContent = s.num;
+      st.name.textContent = s.name || '';
+      st.label = s.name ? `${s.num} ${s.name}` : `${groupName(g)} ${s.num}`;
+      st.el.setAttribute('aria-label', st.label);
+    }));
+  }
+
+  // --- Datos entrantes
+  function onMeters(groups) {
+    let k = 0;
+    groups.forEach((vals, gi) => vals.forEach((db, si) => {
+      const st = strips[groupStart[gi] + si];
+      if (!st) return;
+      st.target = db;
+      if (db > st.maxSeen) st.maxSeen = db;
+      if (db >= CLIP_DB && !st.clip) { st.clip = true; st.clipEl.classList.add('on'); }
+      k++;
+    }));
+    lastData = performance.now();
+  }
+  let lastData = 0;
+  let holdForever = true; // con "Retener picos" activado, el pico se queda hasta borrarlo
+
+  // --- Animación (balística tipo consola: sube al instante, cae a velocidad fija)
+  let prev = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - prev) / 1000);
+    prev = now;
+    const stale = now - lastData > 1500;
+    for (const st of strips) {
+      const target = stale ? -90 : st.target;
+      st.disp = target > st.disp ? target : Math.max(target, st.disp - FALL * dt);
+      if (st.disp >= st.peak) { st.peak = st.disp; st.peakAt = now; }
+      else if (!holdForever && now - st.peakAt > HOLD_MS) st.peak = Math.max(st.disp, st.peak - FALL * 1.5 * dt);
+      const c = Math.round((1 - pos(st.disp)) * 400) / 400;
+      if (c !== st.lastCover) { st.cover.style.transform = `scaleY(${c})`; st.lastCover = c; }
+      const h = Math.round((1 - pos(st.peak)) * 400) / 4;
+      if (h !== st.lastHold) { st.hold.style.transform = `translateY(${h}%)`; st.lastHold = h; }
+    }
+    if (bigCards.length) renderBig(now);
+    if (mode === 'control') for (const cs of cstrips) {
+      const src = meterSources(cs);
+      let d = -90;
+      for (const st of src) if (st.disp > d) d = st.disp;
+      const c = Math.round((1 - pos(d)) * 400) / 400;
+      if (c !== cs.lastCover) { cs.cover.style.transform = `scaleY(${c})`; cs.lastCover = c; }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // --- Conexión con el servidor puente
+  let ws, wantRaw = false;
+  function connect() {
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+    ws = new WebSocket(url);
+    ws.onopen = () => { if (wantRaw) ws.send(JSON.stringify({ type: 'raw', on: true })); };
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'meters') onMeters(m.g);
+      else if (m.type === 'layout') {
+        buildLayout(m);
+        document.title = REPORT_ONLY ? `${t('rep.title')} · ${m.mixer.name}` : `${t('title')}: ${m.mixer.name}`;
+        if (REPORT_ONLY) { if (!$('report').open) openReport(); else { renderSelRow(); renderClipList(); } }
+      }
+      else if (m.type === 'status') setStatus(m.state, m.key && I18N.es[m.key] ? t(m.key, m.p) : m.detail);
+      else if (m.type === 'meter-point') onMeterPoint(m);
+      else if (m.type === 'clear-peaks') clearPeaks(m);
+      else if (m.type === 'clip-log') onClipLog(m.events || []);
+      else if (onShared(m)) {}
+      else if (m.type === 'history') { histData = m; if ($('report').open) drawHistory(); }
+      else if (m.type === 'history-cleared') { histData = null; if ($('report').open) { drawHistory(); askHistory(); } }
+      else if (m.type === 'raw') drawRaw(m.raw);
+      else if (m.type === 'config') onConfig(m);
+      else if (m.type === 'reset') resetBoard();
+      else if (m.type === 'connect-error') $('setupError').textContent = m.key ? t(m.key, m.p) : m.error;
+      else if (m.type === 'control') buildControl(m);
+      else if (m.type === 'param') onParam(m);
+      else if (m.type === 'shure') onShure(m);
+      else if (m.type === 'shure-error') $('shErr').textContent = m.key ? t(m.key, m.p) : m.error;
+    };
+    ws.onclose = () => {
+      setStatus('offline', t('st.offline'));
+      setTimeout(connect, 1500);
+    };
+  }
+  function setStatus(state, text) {
+    $('status').dataset.state = state;
+    $('statusText').textContent = text;
+    if (state === 'setup' && !setup.open) openSetup();
+    if (state !== 'connected' && !strips.length) showEmpty(text);
+  }
+  function showEmpty(text) {
+    $('scroller').innerHTML = `<div class="empty">${esc(text)}</div>`;
+  }
+  connect();
+
+  // --- Valores en bruto
+  function drawRaw(raw) {
+    const panel = $('raw');
+    if (panel.hidden) return;
+    panel.innerHTML = Object.entries(raw).map(([path, vals]) =>
+      `<h3>${esc(path)} (${t('raw.values', { n: vals.length })})</h3><div class="grid">` +
+      vals.map((v, i) => `<span><b>${i}</b>${v <= -89 ? '–' : v.toFixed(1)}</span>`).join('') + '</div>').join('');
+  }
+
+  // --- Ajustes
+  const dlg = $('settings');
+  $('openSettings').onclick = () => dlg.showModal();
+  $('closeSettings').onclick = () => dlg.close();
+  $('clearPeaks').onclick = () => { clearPeaks(null); sendClear({}); toast(t('toast.clipsCleared')); };
+  // Borrado de picos y saturaciones, compartido entre todos los móviles.
+  function clearStrip(s) { s.clip = false; s.clipEl.classList.remove('on'); s.maxSeen = s.target; s.peak = s.disp; }
+  function clearPeaks(m) {
+    if (!m || m.g == null) return strips.forEach(clearStrip);
+    const s = strips.find((x) => x.gid === m.g && x.idx === m.i);
+    if (s) clearStrip(s);
+  }
+  function sendClear(m) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'clear-peaks', ...m }));
+  }
+
+  const optHold = $('optHold'), optLight = $('optLight'), optRaw = $('optRaw');
+  optHold.checked = store.get('hold', true);
+  optLight.checked = store.get('light', false);
+  const applyOpts = () => {
+    document.body.classList.toggle('no-hold', !optHold.checked);
+    holdForever = optHold.checked;
+    document.documentElement.dataset.theme = optLight.checked ? 'light' : 'dark';
+    document.querySelector('meta[name="theme-color"]').content = optLight.checked ? '#e9ecf2' : '#141925';
+  };
+  optHold.onchange = () => { store.set('hold', optHold.checked); applyOpts(); };
+  optLight.onchange = () => { store.set('light', optLight.checked); applyOpts(); };
+  optRaw.onchange = () => {
+    wantRaw = optRaw.checked;
+    $('raw').hidden = !wantRaw;
+    if (!wantRaw) $('raw').innerHTML = '';
+    else $('raw').textContent = t('raw.waiting');
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'raw', on: wantRaw }));
+  };
+  applyOpts();
+  drawScale();
+
+  // --- Conexión con la mesa
+  const setup = $('setup');
+  const HINTS = {
+    auto: ['hint.auto', 'setup.ipOpt'],
+    yamaha: ['hint.yamaha', 'setup.ip'],
+    digico: ['hint.digico', 'setup.ip'],
+    sim: ['hint.sim', null],
+  };
+  let current = null, chosen = null, urls = [], ifaces = [], addrIndex = 0;
+  // Ventana del QR: dirección elegida y, si el Mac tiene varias, la lista para cambiarla.
+  function showAddr(i) {
+    addrIndex = i;
+    $('phoneUrl').textContent = urls[i] || t('phone.noNet');
+    document.querySelector('#phone .qr img').src = `qr.svg?i=${i}&t=${Date.now()}`;
+    $('phoneAddrs').hidden = urls.length < 2;
+    $('phoneAddrList').innerHTML = '';
+    urls.forEach((u, k) => {
+      const b = document.createElement('button');
+      b.setAttribute('aria-pressed', String(k === i));
+      b.innerHTML = `${esc(u.replace('http://', ''))}<small>${esc(ifaces[k] || '')}</small>`;
+      b.onclick = () => showAddr(k);
+      $('phoneAddrList').appendChild(b);
+    });
+  }
+  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+
+  function onConfig(m) {
+    // Copia antigua de la página (caché del móvil): recargar una vez con la versión nueva.
+    if (m.version && /^[0-9a-f]{10}$/.test(window.APP_VERSION) && m.version !== window.APP_VERSION) {
+      let tried = null;
+      try { tried = sessionStorage.getItem('medidores:reloadFor'); sessionStorage.setItem('medidores:reloadFor', m.version); } catch {}
+      if (tried !== m.version) { location.reload(); return; }
+    }
+    current = m.config;
+    urls = m.urls || [];
+    ifaces = m.ifaces || [];
+    showAddr(Math.min(addrIndex, Math.max(0, urls.length - 1)));
+    $('openPhone').hidden = !isLocal;
+  }
+  function resetBoard() {
+    strips = []; groupStart = []; layoutKey = ''; lastLayout = null;
+    if (typeof closeBig === 'function') closeBig();
+    ctrl = null; cstrips = []; ctrlKey = '';
+    $('cscroller').innerHTML = $('cpinned').innerHTML = '';
+    $('layers').innerHTML = '';
+    $('modes').hidden = true; $('lockBtn').hidden = true; $('ctrlSettings').hidden = true;
+    setMode('meters', false);
+    $('pinned').innerHTML = $('filters').innerHTML = '';
+    showEmpty(t('empty.connecting'));
+  }
+  function choose(driver) {
+    chosen = driver;
+    setup.querySelectorAll('.brands button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.driver === driver)));
+    const [hint, label] = HINTS[driver];
+    $('brandHint').textContent = t(hint);
+    $('ipField').hidden = driver === 'sim';
+    $('ipLabel').textContent = label ? t(label) : '';
+    $('digicoFields').hidden = driver !== 'digico';
+    $('setupError').textContent = '';
+    if (!$('ipField').hidden) $('ipInput').focus();
+  }
+  function openSetup() {
+    const c = current || {};
+    $('ipInput').value = c.ip || '';
+    $('sendPort').value = c['send-port'] || '';
+    $('listenPort').value = c['listen-port'] || '';
+    $('setupCancel').hidden = !current;
+    choose(c.driver && HINTS[c.driver] ? c.driver : 'auto');
+    if (dlg.open) dlg.close();
+    setup.showModal();
+  }
+  setup.querySelectorAll('.brands button').forEach((b) => b.addEventListener('click', () => choose(b.dataset.driver)));
+  $('setupCancel').onclick = () => setup.close();
+  setup.addEventListener('cancel', (e) => { if (!current) e.preventDefault(); });
+  $('setupConnect').onclick = () => {
+    const ip = $('ipInput').value.trim();
+    if ((chosen === 'yamaha' || chosen === 'digico') && !ip) { $('setupError').textContent = t('err.needIp'); return; }
+    if (ip && !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('setupError').textContent = t('err.ipForm', { ex: '192.168.1.20' }); return; }
+    if (!ws || ws.readyState !== 1) { $('setupError').textContent = t('err.noBridge'); return; }
+    ws.send(JSON.stringify({ type: 'connect', driver: chosen, ip, 'send-port': $('sendPort').value.trim(), 'listen-port': $('listenPort').value.trim() }));
+    setup.close();
+    if (isLocal && urls.length && !store.get('phoneShown', false)) { store.set('phoneShown', true); $('phone').showModal(); }
+  };
+  $('ipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('setupConnect').click(); });
+  $('status').onclick = openSetup;
+  $('changeMixer').onclick = openSetup;
+  $('openPhone').onclick = () => $('phone').showModal();
+  $('closePhone').onclick = () => $('phone').close();
+
+  // =============== Control (Yamaha) ===============
+  // Recorrido del fader parecido al de una consola: más espacio alrededor de 0 dB.
+  const FP = [[-60, .04], [-40, .16], [-30, .27], [-20, .42], [-10, .6], [-5, .7], [0, .8], [5, .9], [10, 1]];
+  function fpos(db) {
+    if (db === -Infinity || db == null) return 0;
+    if (db < -60) return Math.max(0, .04 * (db + 138) / 78);
+    for (let i = 1; i < FP.length; i++) {
+      const [d1, p1] = FP[i], [d0, p0] = FP[i - 1];
+      if (db <= d1) return p0 + (p1 - p0) * (db - d0) / (d1 - d0);
+    }
+    return 1;
+  }
+  function fdb(p) {
+    if (p <= .003) return -Infinity;
+    if (p < .04) return Math.round(-138 + 78 * p / .04);
+    for (let i = 1; i < FP.length; i++) {
+      const [d1, p1] = FP[i], [d0, p0] = FP[i - 1];
+      if (p <= p1) {
+        const db = d0 + (d1 - d0) * (p - p0) / (p1 - p0);
+        if (Math.abs(db) < .4) return 0; // retén en 0 dB
+        return db > -10 ? Math.round(db * 10) / 10 : Math.round(db * 2) / 2;
+      }
+    }
+    return 10;
+  }
+  const fmtDb = (v) => (v == null ? '—' : v === -Infinity ? '−∞' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1));
+  const fmtGain = (v) => (v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v));
+  const fromWire = (v) => (v === '-inf' ? -Infinity : v);
+  const toWire = (v) => (v === -Infinity ? '-inf' : v);
+
+  let ctrl = null, cstrips = [], ctrlKey = '', mode = 'meters', locked = true, lockTimer;
+  let faderLimit = store.get('limit', 0);
+  let autolock = store.get('autolock', true);
+
+  const CTRL_GROUPS = ['ch', 'bus', 'mtx']; // grupos que van en la lista desplazable; 'main' va fijo a la derecha
+  function buildControl(m) {
+    const conv = (arr) => (arr || []).map((c) => ({ ...c, fader: fromWire(c.fader) }));
+    ctrl = { caps: m.caps, ch: conv(m.ch), main: conv(m.main), bus: conv(m.bus), mtx: conv(m.mtx) };
+    const key = `${ctrl.ch.length}/${ctrl.bus.length}/${ctrl.mtx.length}/${ctrl.main.length}/${!!ctrl.caps.gain}`;
+    if (key !== ctrlKey) {
+      ctrlKey = key;
+      cstrips = [];
+      const sc = $('cscroller'), pin = $('cpinned');
+      sc.innerHTML = pin.innerHTML = '';
+      for (const g of CTRL_GROUPS) ctrl[g].forEach((_, i) => sc.appendChild(makeStrip(g, i)));
+      ctrl.main.forEach((_, i) => pin.appendChild(makeStrip('main', i)));
+      buildLayerBar();
+    }
+    applyLayer();
+    relabelControl();
+    $('modes').hidden = false;
+    $('ctrlSettings').hidden = false;
+    setMode(store.get('mode', 'meters'), false);
+  }
+
+  function makeStrip(g, i) {
+    const el = document.createElement('div');
+    const hasGain = g === 'ch'; // HA de la mesa o, si no hay, ganancia de un receptor Shure
+    el.className = `cs g-${g}` + (g === 'main' ? ' master' : '') + (hasGain ? '' : ' nogain');
+    el.innerHTML = `
+      <div class="cs-name"><b></b><i class="cs-link" hidden></i><span></span></div>
+      <div class="cs-gain"><button class="gdn" aria-label="${t('a.gainDown')}">−</button><output><span></span><small class="gunit">dB</small></output><button class="gup" aria-label="${t('a.gainUp')}">+</button></div>
+      <button class="cs-on" aria-pressed="false">ON</button>
+      <div class="cs-fader"><div class="cs-meter"><div class="cover"></div></div>
+        <div class="cs-track"><div class="zero" style="bottom:${fpos(0) * 100}%"></div><div class="cs-cap"></div></div>
+        <div class="cs-scale" aria-hidden="true"></div></div>
+      <output class="cs-val"></output>`;
+    const cs = {
+      g, i, el, cap: el.querySelector('.cs-cap'), track: el.querySelector('.cs-track'), cover: el.querySelector('.cs-meter .cover'),
+      val: el.querySelector('.cs-val'), on: el.querySelector('.cs-on'), gain: el.querySelector('.cs-gain output span'),
+      gunit: el.querySelector('.gunit'), grow: el.querySelector('.cs-gain'),
+      num: el.querySelector('.cs-name b'), name: el.querySelector('.cs-name span'), link: el.querySelector('.cs-link'),
+      scale: el.querySelector('.cs-scale'), scaleH: -1,
+      dragging: false, holdUntil: 0, lastCover: -1, sendTimer: null,
+    };
+    // Fader: arrastre relativo (no salta al punto tocado). Deslizar en horizontal sigue desplazando la lista.
+    const area = el.querySelector('.cs-fader');
+    let startY = 0, startP = 0, startDb = 0, id = null;
+    area.addEventListener('pointerdown', (e) => {
+      if (locked) return lockedHint();
+      id = e.pointerId; area.setPointerCapture(id);
+      startY = e.clientY; startDb = data(cs).fader; startP = fpos(startDb);
+      cs.dragging = true; el.classList.add('dragging'); touch();
+    });
+    area.addEventListener('pointermove', (e) => {
+      if (!cs.dragging || e.pointerId !== id) return;
+      const h = cs.track.clientHeight || 1;
+      let db = fdb(Math.min(1, Math.max(0, startP - (e.clientY - startY) / h)));
+      const maxAllowed = startDb !== -Infinity && startDb > faderLimit ? startDb : faderLimit;
+      if (db > maxAllowed) db = maxAllowed;
+      if (db === data(cs).fader) return;
+      data(cs).fader = db;
+      renderStrip(cs);
+      sendThrottled(cs, 'fader', db);
+      touch();
+    });
+    const end = (e) => {
+      if (!cs.dragging || e.pointerId !== id) return;
+      cs.dragging = false; el.classList.remove('dragging');
+      cs.holdUntil = performance.now() + 700;
+      flushSend(cs);
+    };
+    area.addEventListener('pointerup', end);
+    area.addEventListener('pointercancel', end);
+
+    cs.on.addEventListener('click', () => {
+      if (locked) return lockedHint();
+      const d = data(cs);
+      d.on = !d.on; renderStrip(cs); send(cs, 'on', d.on); touch();
+    });
+    if (hasGain) {
+      const step = (dir) => {
+        const d = data(cs);
+        if (d.gain != null && ctrl.caps.gain) {
+          const nv = Math.min(ctrl.caps.gain.max, Math.max(ctrl.caps.gain.min, d.gain + dir * ctrl.caps.gain.step));
+          if (nv === d.gain) return;
+          d.gain = nv; renderStrip(cs); send(cs, 'gain', nv); touch();
+          return;
+        }
+        const e = extState[cs.i];
+        if (e) {
+          if (!e.online || e.gain == null) return toast(t('toast.shureNoResp'));
+          const nv = Math.min(42, Math.max(-18, e.gain + dir));
+          if (nv === e.gain) return;
+          e.gain = nv; renderStrip(cs); send(cs, 'ext', nv); touch();
+          return;
+        }
+        toast(t('toast.noGain'));
+      };
+      [['.gup', 1], ['.gdn', -1]].forEach(([sel, dir]) => {
+        const b = el.querySelector(sel);
+        let rep, first;
+        const stop = () => { clearTimeout(first); clearInterval(rep); };
+        b.addEventListener('pointerdown', (e) => {
+          if (locked) return lockedHint();
+          e.preventDefault(); step(dir);
+          first = setTimeout(() => { rep = setInterval(() => step(dir), 140); }, 450); // mantener pulsado repite
+        });
+        ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => b.addEventListener(t, stop));
+      });
+    }
+    cstrips.push(cs);
+    return el;
+  }
+
+  const data = (cs) => ctrl[cs.g][cs.i];
+
+  // =============== Capas del modo Control ===============
+  const csKey = (cs) => `${cs.g}:${cs.i}`;
+  const layerName = (g) => {
+    const lg = lastLayout && lastLayout.groups.find((x) => x.id === g);
+    return lg ? groupName(lg) : t('ly.' + g);
+  };
+  function availableLayers() { return [...CTRL_GROUPS.filter((g) => ctrl && ctrl[g].length), 'custom']; }
+  function buildLayerBar() {
+    const nav = $('layers');
+    nav.innerHTML = availableLayers().map((g) => `<button data-layer="${g}">${esc(g === 'custom' ? t('ly.custom') : layerName(g))}</button>`).join('')
+      + `<button class="edit" id="editCustom" aria-label="${esc(t('ly.edit'))}" title="${esc(t('ly.edit'))}">✎</button>`
+      + `<span class="sep"></span><button class="stereo" id="toggleStereo" title="${esc(t('ly.showStereo'))}">${esc(ctrl.main.length === 2 ? t('main.one') + ' A/B' : t('main.one'))}</button>`;
+    nav.querySelectorAll('[data-layer]').forEach((b) => b.onclick = () => { store.set('ctlLayer', b.dataset.layer); applyLayer(); });
+    $('editCustom').onclick = openCustom;
+    $('toggleStereo').onclick = () => { store.set('ctlStereo', !store.get('ctlStereo', true)); applyLayer(); };
+  }
+  function customList() {
+    const valid = new Set(cstrips.map(csKey));
+    return store.get('ctlCustom', []).filter((k) => valid.has(k));
+  }
+  // Muestra la capa elegida: sus tiras en la lista desplazable, en su orden (en Custom, el orden elegido).
+  function applyLayer() {
+    if (!ctrl) return;
+    let layer = store.get('ctlLayer', 'ch');
+    if (!availableLayers().includes(layer)) layer = 'ch';
+    const showStereo = store.get('ctlStereo', true);
+    const sc = $('cscroller'), pin = $('cpinned');
+    sc.querySelector('.custom-empty')?.remove();
+    const byKey = new Map(cstrips.map((cs) => [csKey(cs), cs]));
+    if (layer === 'custom') {
+      const list = customList();
+      const inList = new Set(list);
+      for (const cs of cstrips) {
+        cs.el.hidden = !inList.has(csKey(cs));
+        if (cs.g === 'main' && !inList.has(csKey(cs))) { pin.appendChild(cs.el); cs.el.hidden = false; }
+      }
+      for (const k of list) sc.appendChild(byKey.get(k).el);
+      if (!list.length) sc.insertAdjacentHTML('beforeend', `<div class="custom-empty">${esc(t('ly.empty'))}</div>`);
+    } else {
+      for (const cs of cstrips) {
+        if (cs.g === 'main') { pin.appendChild(cs.el); cs.el.hidden = false; continue; }
+        sc.appendChild(cs.el); // orden natural
+        cs.el.hidden = cs.g !== layer;
+      }
+    }
+    pin.hidden = !showStereo || !pin.querySelector('.cs');
+    $('layers').querySelectorAll('[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.layer === layer)));
+    $('toggleStereo').setAttribute('aria-pressed', String(showStereo));
+    sc.scrollLeft = 0;
+    requestAnimationFrame(() => cstrips.forEach((cs) => { if (!cs.el.hidden) renderStrip(cs); }));
+  }
+  // Elegir las tiras de la capa Custom (en el orden en que se tocan).
+  function openCustom() {
+    renderCustomPicker();
+    $('customDlg').showModal();
+  }
+  function renderCustomPicker() {
+    const list = customList();
+    const groups = [...CTRL_GROUPS, 'main'].filter((g) => ctrl[g].length);
+    $('cuCount').textContent = t('cu.count', { n: list.length });
+    $('cuPicker').innerHTML = groups.map((g) => `<h4>${esc(g === 'main' ? t('main.one') : layerName(g))}</h4><div class="chips">`
+      + cstrips.filter((cs) => cs.g === g).map((cs) => {
+        const k = csKey(cs), n = list.indexOf(k);
+        const label = `${cs.num.textContent}${cs.name.textContent ? ' ' + cs.name.textContent : ''}`;
+        return `<button class="pick-chip" data-k="${k}" aria-pressed="${n >= 0}">${n >= 0 ? `<span class="ord">${n + 1}</span>` : ''}${esc(label)}</button>`;
+      }).join('') + '</div>').join('');
+    $('cuPicker').querySelectorAll('.pick-chip').forEach((b) => b.onclick = () => {
+      const cur = customList(), k = b.dataset.k;
+      store.set('ctlCustom', cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]);
+      const top = $('cuPicker').scrollTop;
+      renderCustomPicker();
+      $('cuPicker').scrollTop = top;
+    });
+  }
+  $('cuClear').onclick = () => { store.set('ctlCustom', []); renderCustomPicker(); };
+  $('cuDone').onclick = () => { $('customDlg').close(); store.set('ctlLayer', 'custom'); applyLayer(); };
+  $('customDlg').addEventListener('close', applyLayer);
+
+  // --- Receptores Shure
+  let extState = {}, shureList = [];
+  function onShure(m) {
+    extState = m.ext || {};
+    shureList = m.list || [];
+    $('shErr').textContent = '';
+    $('shureList').innerHTML = '';
+    shureList.forEach((r, k) => {
+      const li = document.createElement('li');
+      const maps = Object.entries(r.map).map(([rx, ch]) => `${rx}→${ch}`).join(', ');
+      li.innerHTML = `<i class="dot${m.online[k] ? ' on' : ''}"></i><span>${esc(r.ip)} · ${t('sh.channels')} ${esc(maps)}</span><button>${t('sh.remove')}</button>`;
+      li.querySelector('button').onclick = () => {
+        if (!confirm(t('sh.confirmRemove', { ip: r.ip }))) return;
+        ws.send(JSON.stringify({ type: 'shure-set', list: shureList.filter((_, j) => j !== k) }));
+      };
+      $('shureList').appendChild(li);
+    });
+    cstrips.forEach(renderStrip);
+  }
+  $('shAdd').onclick = () => {
+    const ip = $('shIp').value.trim();
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('shErr').textContent = t('err.ipForm', { ex: '192.168.0.50' }); return; }
+    const map = {};
+    for (let k = 1; k <= 4; k++) {
+      const v = $('shC' + k).value.trim();
+      if (!v) continue;
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) { $('shErr').textContent = t('sh.errChannel', { v }); return; }
+      const d = ctrl && ctrl.ch[n - 1];
+      if (d && d.gain != null) { $('shErr').textContent = t('sh.errHasHa', { n }); return; }
+      map[k] = n;
+    }
+    if (!Object.keys(map).length) { $('shErr').textContent = t('sh.errNone'); return; }
+    ws.send(JSON.stringify({ type: 'shure-set', list: [...shureList.filter((r) => r.ip !== ip), { ip, map }] }));
+    ['shIp', 'shC1', 'shC2', 'shC3', 'shC4'].forEach((id) => { $(id).value = ''; });
+  };
+
+  // Marcas de la escala, por orden de importancia: si el fader es bajo, solo caben las primeras.
+  const SCALE_MARKS = [0, -10, 10, -20, -30, 5, -5, -40, -60, -Infinity];
+  const SCALE_TEXT = (v) => (v === -Infinity ? '−∞' : v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0');
+  function layoutScale(cs) {
+    const h = cs.track.clientHeight;
+    if (!h || h === cs.scaleH) return;
+    cs.scaleH = h;
+    const chosen = [];
+    for (const v of SCALE_MARKS) {
+      const y = fpos(v) * h;
+      if (chosen.every((c) => Math.abs(c.y - y) >= 12)) chosen.push({ v, y });
+    }
+    cs.scale.innerHTML = chosen
+      .map(({ v }) => `<span class="${v === 0 ? 'z' : ''}" style="bottom:${fpos(v) * 100}%">${SCALE_TEXT(v)}</span>`)
+      .join('');
+    // Rayas sobre el recorrido del fader a la altura de cada marca (el 0 ya tiene su línea).
+    cs.track.querySelectorAll('.tk').forEach((x) => x.remove());
+    for (const { v } of chosen) {
+      if (v === 0 || v === -Infinity) continue;
+      const tk = document.createElement('i');
+      tk.className = 'tk';
+      tk.style.bottom = `${fpos(v) * 100}%`;
+      cs.track.insertBefore(tk, cs.cap);
+    }
+  }
+
+  function renderStrip(cs) {
+    layoutScale(cs);
+    const d = data(cs);
+    const p = fpos(d.fader);
+    cs.cap.style.transform = `translateY(${(1 - p) * cs.track.clientHeight}px)`;
+    cs.val.textContent = fmtDb(d.fader);
+    cs.on.setAttribute('aria-pressed', String(!!d.on));
+    if (cs.g === 'ch') {
+      const e = d.gain == null ? extState[cs.i] : null;
+      cs.gain.textContent = e ? (e.online && e.gain != null ? fmtGain(e.gain) : '—') : fmtGain(d.gain);
+      cs.gunit.textContent = e ? 'SHURE' : 'dB';
+      cs.grow.classList.toggle('ext', !!e);
+      cs.gain.title = e ? t(e.online ? 'gain.shureTitle' : 'gain.shureOff') : '';
+      cs.el.classList.toggle('nogain', !ctrl.caps.gain && !e);
+    }
+    const tags = [d.stereo ? 'ST' : '', d.link ? `L${d.link}` : ''].filter(Boolean);
+    cs.link.hidden = !tags.length;
+    cs.link.textContent = tags.join(' ');
+    cs.link.title = [d.stereo ? t('link.stereo') : '', d.link ? t('link.group', { n: d.link }) : ''].filter(Boolean).join(' · ');
+  }
+
+  function relabelControl() {
+    if (!ctrl) return;
+    const grp = (id) => lastLayout && lastLayout.groups.find((g) => g.id === id);
+    for (const cs of cstrips) {
+      if (cs.g !== 'main') {
+        const s = grp(cs.g) && grp(cs.g).strips[cs.i];
+        cs.num.textContent = cs.g === 'ch' ? String(cs.i + 1) : (s && s.num) || `${cs.g === 'bus' ? 'MX' : 'MT'}${cs.i + 1}`;
+        cs.name.textContent = (s && s.name) || '';
+      } else {
+        cs.num.textContent = 'ST';
+        cs.name.textContent = ctrl.main.length === 2 ? t(cs.i === 0 ? 'main.a' : 'main.b') : t('main.one');
+      }
+    }
+  }
+
+  // Medidores que acompañan a cada tira de control.
+  function meterSources(cs) {
+    if (!lastLayout) return [];
+    const gi = lastLayout.groups.findIndex((g) => g.id === cs.g);
+    if (gi < 0) return [];
+    if (cs.g !== 'main') return [strips[groupStart[gi] + cs.i]].filter(Boolean);
+    const n = lastLayout.groups[gi].strips.length, per = Math.max(1, Math.floor(n / ctrl.main.length));
+    return Array.from({ length: per }, (_, k) => strips[groupStart[gi] + cs.i * per + k]).filter(Boolean);
+  }
+
+  function onParam(m) {
+    if (m.key === 'ext') {
+      extState[m.i] = m.value;
+      const cs = cstrips.find((c) => c.g === 'ch' && c.i === m.i);
+      if (cs) renderStrip(cs);
+      return;
+    }
+    if (!ctrl || !ctrl[m.g] || !ctrl[m.g][m.i]) return;
+    const cs = cstrips.find((c) => c.g === m.g && c.i === m.i);
+    if (m.key === 'fader' && cs && (cs.dragging || performance.now() < cs.holdUntil)) return; // el dedo manda
+    ctrl[m.g][m.i][m.key] = m.key === 'fader' ? fromWire(m.value) : m.value;
+    if (cs) renderStrip(cs);
+  }
+
+  function send(cs, key, value) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set', g: cs.g, i: cs.i, key, value: toWire(value) }));
+  }
+  function sendThrottled(cs, key, value) {
+    cs.pending = [key, value];
+    if (cs.sendTimer) return;
+    cs.sendTimer = setTimeout(() => flushSend(cs), 40);
+  }
+  function flushSend(cs) {
+    clearTimeout(cs.sendTimer); cs.sendTimer = null;
+    if (cs.pending) { send(cs, cs.pending[0], cs.pending[1]); cs.pending = null; }
+  }
+
+  function setMode(m, save = true) {
+    mode = m === 'control' && ctrl ? 'control' : 'meters';
+    document.body.dataset.mode = mode;
+    $('modes').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    $('lockBtn').hidden = mode !== 'control';
+    if (save) store.set('mode', mode);
+    if (mode === 'control') applyLayer();
+  }
+  $('modes').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+  function setLocked(v) {
+    locked = v;
+    document.body.classList.toggle('locked', v);
+    $('lockBtn').setAttribute('aria-pressed', String(v));
+    $('lockBtn').setAttribute('aria-label', t(v ? 'a.unlock' : 'a.lock'));
+    $('lockShackle').setAttribute('d', v ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 7.5-2');
+    if (!v) touch(); else clearTimeout(lockTimer);
+  }
+  function touch() {
+    clearTimeout(lockTimer);
+    if (autolock && !locked) lockTimer = setTimeout(() => { setLocked(true); toast(t('toast.lockedIdle')); }, 120000);
+  }
+  function lockedHint() { toast(t('toast.lockedHint')); }
+  $('lockBtn').onclick = () => { setLocked(!locked); toast(t(locked ? 'toast.locked' : 'toast.unlocked')); };
+  setLocked(true);
+
+  $('optLimit').value = String(faderLimit);
+  $('optLimit').onchange = () => { faderLimit = Number($('optLimit').value); store.set('limit', faderLimit); };
+  $('optAutolock').checked = autolock;
+  $('optAutolock').onchange = () => { autolock = $('optAutolock').checked; store.set('autolock', autolock); touch(); };
+  window.addEventListener('resize', () => cstrips.forEach(renderStrip));
+
+  // =============== Registro del bolo ===============
+  let clipEvents = [], clipInit = false, histData = null, histTimer = null;
+  // Canales elegidos para la gráfica (se guardan en cada móvil). "main" = salida principal.
+  const MAX_SEL = 6;
+  const SEL_COLORS = ['#f1b43b', '#72c2dc', '#b39af3', '#e49fc6', '#8fd6a8', '#f08a4b'];
+  let histSel = store.get('histSel', ['main']);
+  const keyOf = (st) => `${st.gid}:${st.idx}`;
+  function keyLabel(key) {
+    if (key === 'main') {
+      const g = lastLayout && lastLayout.groups.find((x) => x.id === 'main');
+      return g ? groupName(g) : 'Main';
+    }
+    const [gid, i] = key.split(':');
+    const st = strips.find((x) => x.gid === gid && x.idx === Number(i));
+    return st ? st.label : key;
+  }
+  // Solo los canales que existen en la mesa actual.
+  function activeSel() {
+    const hasMain = lastLayout && lastLayout.groups.some((g) => g.id === 'main');
+    const ok = histSel.filter((k) => (k === 'main' ? hasMain : strips.some((st) => keyOf(st) === k)));
+    return ok.length ? ok : hasMain ? ['main'] : strips[0] ? [keyOf(strips[0])] : [];
+  }
+  const seenKey = 'clipSeen';
+  const fmtClock = (ms) => new Date(ms).toLocaleTimeString(LANG, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const fmtNum = (v) => (v > 0 ? '+' : '') + v.toFixed(1);
+
+  function onClipLog(events) {
+    const lastT = clipEvents.length ? clipEvents[clipEvents.length - 1].t : 0;
+    // Aviso de las saturaciones nuevas (no al cargar la página).
+    if (clipInit) for (const e of events) if (e.t > lastT) toast(t('clip.toast', { label: e.label, v: fmtNum(e.peak) }));
+    clipEvents = events;
+    clipInit = true;
+    updateBadge();
+    if ($('report').open) renderClipList();
+  }
+  function updateBadge() {
+    const seen = store.get(seenKey, 0);
+    const n = clipEvents.filter((e) => e.t > seen).length;
+    $('reportBadge').hidden = !n || $('report').open;
+    $('reportBadge').textContent = n > 99 ? '99+' : String(n);
+  }
+  function renderClipList() {
+    const seen = store.get(seenKey, 0);
+    const ul = $('clipList');
+    let events = clipEvents;
+    if ($('clipFilter').checked) {
+      const sel = new Set(activeSel());
+      events = clipEvents.filter((e) => sel.has(`${e.g}:${e.i}`) || (e.g === 'main' && sel.has('main')));
+    }
+    if (!events.length) { ul.innerHTML = `<li><span class="empty-row">${esc(t('rep.noClips'))}</span></li>`; return; }
+    ul.innerHTML = events.slice().reverse().map((e) =>
+      `<li class="${e.t > seen ? 'new' : ''}"><time>${fmtClock(e.t)}</time><span>${esc(e.label)}</span><b>${fmtNum(e.peak)} dB</b></li>`).join('');
+  }
+  function openReport() {
+    $('clipFilter').checked = store.get('clipFilter', false);
+    renderClipList();
+    $('picker').hidden = true;
+    renderSelRow();
+    const dlg = $('report');
+    if (REPORT_ONLY) dlg.show();
+    else if (desktop()) { dlg.classList.add('floating'); dlg.show(); placeReport(); }
+    else { dlg.classList.remove('floating'); dlg.showModal(); }
+    $('repPopout').hidden = REPORT_ONLY || !desktop();
+    drawHistory();
+    // Marcar como vistas después de pintarlas (así se ven resaltadas esta vez).
+    store.set(seenKey, clipEvents.length ? clipEvents[clipEvents.length - 1].t : Date.now());
+    updateBadge();
+    askHistory();
+    histTimer = setInterval(askHistory, 5000);
+  }
+  function askHistory() { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'history-get', keys: activeSel() })); }
+  $('clipFilter').onchange = () => { store.set('clipFilter', $('clipFilter').checked); renderClipList(); };
+
+  // Fila de canales elegidos (con su color) y botón para cambiarlos.
+  function renderSelRow() {
+    const sel = activeSel();
+    const row = $('selRow');
+    row.innerHTML = sel.map((k, n) => `<span class="sel-chip"><i style="background:${SEL_COLORS[n]}"></i>${esc(keyLabel(k))}</span>`).join('')
+      + `<button class="sel-chip sel-edit" id="selEdit">${esc(t('rep.choose'))}</button>`;
+    $('selEdit').onclick = togglePicker;
+    $('histCsv').href = `historial.csv?c=${encodeURIComponent(sel.join(','))}`;
+  }
+  function togglePicker() {
+    const pk = $('picker');
+    if (!pk.hidden) { pk.hidden = true; return; }
+    const sel = new Set(activeSel());
+    let html = '';
+    if (lastLayout && lastLayout.groups.some((g) => g.id === 'main')) {
+      html += `<h4>${esc(t('rep.output'))}</h4><div class="chips"><button class="pick-chip" data-k="main" aria-pressed="${sel.has('main')}">${esc(keyLabel('main'))}</button></div>`;
+    }
+    for (const g of (lastLayout ? lastLayout.groups : [])) {
+      const members = strips.filter((st) => st.gid === g.id);
+      if (!members.length) continue;
+      html += `<h4>${esc(groupName(g))}</h4><div class="chips">` + members.map((st) =>
+        `<button class="pick-chip" data-k="${keyOf(st)}" aria-pressed="${sel.has(keyOf(st))}">${esc(st.label)}</button>`).join('') + '</div>';
+    }
+    html += `<button class="done" id="pickDone">${esc(t('rep.done'))}</button>`;
+    pk.innerHTML = html;
+    pk.hidden = false;
+    pk.querySelectorAll('.pick-chip').forEach((b) => b.onclick = () => {
+      const k = b.dataset.k, cur = activeSel();
+      if (cur.includes(k)) {
+        if (cur.length === 1) return; // siempre al menos un canal
+        histSel = cur.filter((x) => x !== k);
+      } else {
+        if (cur.length >= MAX_SEL) return toast(t('rep.max', { n: MAX_SEL }));
+        histSel = [...cur, k];
+      }
+      store.set('histSel', histSel);
+      b.setAttribute('aria-pressed', String(histSel.includes(k)));
+      renderSelRow();
+      renderClipList();
+      histData = null; drawHistory(); askHistory();
+    });
+    $('pickDone').onclick = () => { pk.hidden = true; };
+  }
+  $('reportBtn').onclick = openReport;
+  $('closeReport').onclick = () => {
+    if (!REPORT_ONLY) return $('report').close();
+    window.close();
+    setTimeout(() => { location.href = location.pathname; }, 150); // si el navegador no deja cerrarla
+  };
+  // Ordenador con ratón y pantalla amplia: panel flotante. Móvil: ventana normal.
+  function desktop() { return matchMedia('(pointer: fine)').matches && innerWidth >= 800; }
+  function placeReport() {
+    const dlg = $('report');
+    const saved = store.get('reportPos', null);
+    const w = dlg.offsetWidth, h = dlg.offsetHeight;
+    let x = saved ? saved.x : (innerWidth - w) / 2, y = saved ? saved.y : Math.max(20, (innerHeight - h) / 2);
+    x = Math.min(Math.max(0, x), Math.max(0, innerWidth - w)); y = Math.min(Math.max(0, y), Math.max(0, innerHeight - 60));
+    dlg.style.left = `${x}px`; dlg.style.top = `${y}px`;
+  }
+  (() => {
+    const head = $('repHead'), dlg = $('report');
+    let sx = 0, sy = 0, ox = 0, oy = 0, drag = false;
+    head.addEventListener('pointerdown', (e) => {
+      if (!dlg.classList.contains('floating') || e.target.closest('button')) return;
+      drag = true; head.setPointerCapture(e.pointerId);
+      sx = e.clientX; sy = e.clientY; ox = dlg.offsetLeft; oy = dlg.offsetTop;
+    });
+    head.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const x = Math.min(Math.max(-dlg.offsetWidth + 120, ox + e.clientX - sx), innerWidth - 120);
+      const y = Math.min(Math.max(0, oy + e.clientY - sy), innerHeight - 50);
+      dlg.style.left = `${x}px`; dlg.style.top = `${y}px`;
+    });
+    const end = () => { if (!drag) return; drag = false; store.set('reportPos', { x: dlg.offsetLeft, y: dlg.offsetTop }); };
+    head.addEventListener('pointerup', end); head.addEventListener('pointercancel', end);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && dlg.open && dlg.classList.contains('floating')) dlg.close(); });
+    window.addEventListener('resize', () => { if (dlg.open) { if (dlg.classList.contains('floating')) placeReport(); drawHistory(); } });
+  })();
+  // Abrir el registro en una ventana independiente del navegador (se puede llevar a otra pantalla).
+  $('repPopout').onclick = () => {
+    const win = window.open(`${location.pathname}?vista=registro`, 'medidores-registro', 'popup,width=920,height=760');
+    if (win) { $('report').close(); win.focus(); }
+  };
+  $('report').addEventListener('close', () => { clearInterval(histTimer); updateBadge(); });
+  $('clearLog').onclick = () => { if (confirm(t('confirm.clearLog'))) ws.send(JSON.stringify({ type: 'clip-log-clear' })); };
+  $('clearHistory').onclick = () => { if (confirm(t('confirm.clearHistory'))) ws.send(JSON.stringify({ type: 'history-clear' })); };
+
+  // Gráfica de nivel, de −60 a 0 dB. Un canal: pico (ámbar) y media (verde). Varios: el pico de cada uno, con su color.
+  const H_MIN = -60, H_MAX = 0, PAD_L = 30;
+  function chartSeries() {
+    const sel = activeSel();
+    if (!histData || !histData.t || histData.t.length < 2) return { sel, lines: [] };
+    const keys = sel.filter((k) => histData.series && histData.series[k]);
+    if (keys.length === 1) {
+      const sr = histData.series[keys[0]];
+      return { sel, single: true, lines: [
+        { key: keys[0], what: 'avg', color: getComputedStyle(document.documentElement).getPropertyValue('--sig').trim(), data: sr.avg },
+        { key: keys[0], what: 'peak', color: '#f1b43b', data: sr.peak }] };
+    }
+    return { sel, lines: keys.map((k) => ({ key: k, what: 'peak', color: SEL_COLORS[sel.indexOf(k)], data: histData.series[k].peak })) };
+  }
+  function drawHistory() {
+    const cv = $('histChart'), dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (!w) return;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const c = cv.getContext('2d');
+    c.scale(dpr, dpr);
+    const col = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    const pw = w - PAD_L - 6, ph = h - 18 - 6;
+    const y = (db) => 6 + ph * (1 - (Math.max(H_MIN, Math.min(H_MAX, db)) - H_MIN) / (H_MAX - H_MIN));
+    c.font = '11px system-ui, sans-serif';
+    c.fillStyle = col('--muted'); c.strokeStyle = col('--line'); c.lineWidth = 1;
+    for (const db of [0, -6, -12, -18, -24, -36, -48, -60]) {
+      c.beginPath(); c.moveTo(PAD_L, y(db) + .5); c.lineTo(w - 6, y(db) + .5); c.stroke();
+      c.textAlign = 'right'; c.textBaseline = 'middle'; c.fillText(String(db), PAD_L - 5, y(db));
+    }
+    const { lines, single } = chartSeries();
+    // Leyenda
+    $('chartLegend').innerHTML = single
+      ? `<span><i style="background:#f1b43b"></i>${esc(t('rep.peak'))}</span><span><i style="background:${col('--sig')}"></i>${esc(t('rep.avg'))}</span>`
+      : ''; // con varios canales, los colores ya están en las etiquetas de arriba
+    const read = $('chartRead');
+    if (!lines.length) {
+      c.textAlign = 'center'; c.fillStyle = col('--muted');
+      c.fillText(t(histData ? 'rep.noHistory' : 'empty.connecting'), PAD_L + pw / 2, 6 + ph / 2);
+      read.textContent = ''; return;
+    }
+    const T = histData.t, t0 = T[0], t1 = T[T.length - 1], span = Math.max(1, t1 - t0);
+    const x = (tt) => PAD_L + pw * (tt - t0) / span;
+    const gapLimit = Math.max(5, (span / T.length) * 3); // hueco en los datos (mesa desconectada): se corta la línea
+    for (const l of lines) {
+      c.strokeStyle = l.color; c.lineWidth = 1.5; c.beginPath();
+      let drawing = false;
+      l.data.forEach((v, k) => {
+        if (v == null || (k && T[k] - T[k - 1] > gapLimit)) { drawing = false; if (v == null) return; }
+        const px = x(T[k]), py = y(v);
+        drawing ? c.lineTo(px, py) : c.moveTo(px, py);
+        drawing = true;
+      });
+      c.stroke();
+    }
+    c.fillStyle = col('--muted'); c.textBaseline = 'alphabetic';
+    const lbl = (tt) => new Date(tt * 1000).toLocaleTimeString(LANG, { hour: '2-digit', minute: '2-digit' });
+    c.textAlign = 'left'; c.fillText(lbl(t0), PAD_L, h - 3);
+    c.textAlign = 'right'; c.fillText(lbl(t1), w - 6, h - 3);
+    if (t1 - t0 > 600) { c.textAlign = 'center'; c.fillText(lbl((t0 + t1) / 2), PAD_L + pw / 2, h - 3); }
+    if (!read.dataset.pinned) showReading(T.length - 1);
+  }
+  // Texto con los valores de un instante de la gráfica.
+  function showReading(k) {
+    const { lines, single } = chartSeries();
+    if (!lines.length) return;
+    const tt = histData.t[k];
+    const v = (arr) => (arr[k] == null ? '—' : `${fmtNum(arr[k])} dB`);
+    const parts = single
+      ? [`${t('rep.peak')} ${v(lines[1].data)}`, `${t('rep.avg')} ${v(lines[0].data)}`]
+      : lines.map((l) => `${keyLabel(l.key)} ${v(l.data)}`);
+    $('chartRead').textContent = `${fmtClock(tt * 1000)} · ${parts.join(' · ')}`;
+  }
+  // Tocar o arrastrar sobre la gráfica muestra los valores de ese momento.
+  (() => {
+    const cv = $('histChart'), read = $('chartRead');
+    const show = (e) => {
+      if (!histData || !histData.t || histData.t.length < 2) return;
+      const r = cv.getBoundingClientRect(), pw = r.width - PAD_L - 6;
+      const f = Math.max(0, Math.min(1, (e.clientX - r.left - PAD_L) / pw));
+      const T = histData.t, tt = T[0] + f * (T[T.length - 1] - T[0]);
+      let best = 0;
+      for (let k = 1; k < T.length; k++) if (Math.abs(T[k] - tt) < Math.abs(T[best] - tt)) best = k;
+      read.dataset.pinned = '1';
+      showReading(best);
+    };
+    cv.addEventListener('pointerdown', show);
+    cv.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'touch') show(e); });
+    $('report').addEventListener('close', () => { delete read.dataset.pinned; });
+  })();
+
+  // =============== Vista grande: un canal o todo su grupo ===============
+  // Canales vinculados al tocado: su grupo de link y su pareja estéreo (y los de esa pareja).
+  function linkedChannels(i) {
+    if (!ctrl || !ctrl.ch[i]) return [i];
+    const out = new Set([i]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const k of [...out]) {
+        const c = ctrl.ch[k];
+        if (!c) continue;
+        const add = [];
+        if (c.pair >= 0) add.push(c.pair);
+        if (c.link) ctrl.ch.forEach((o, j) => { if (o.link === c.link) add.push(j); });
+        for (const j of add) if (!out.has(j)) { out.add(j); grew = true; }
+      }
+    }
+    return [...out].sort((a, b) => a - b);
+  }
+
+  let bigCards = [], bigLastText = 0;
+  function openBig(st) {
+    let members = [st];
+    if (st.gid === 'ch') {
+      const gi = lastLayout ? lastLayout.groups.findIndex((g) => g.id === 'ch') : -1;
+      if (gi >= 0) members = linkedChannels(st.idx).map((j) => strips[groupStart[gi] + j]).filter(Boolean);
+      if (!members.length) members = [st];
+    }
+    const grid = $('bigGrid');
+    grid.innerHTML = '';
+    grid.classList.toggle('one', members.length === 1);
+    bigCards = members.map((m) => {
+      const card = document.createElement('div');
+      card.className = 'big-card';
+      card.innerHTML = `<div class="big-meter"><div class="cover"></div><div class="hold"></div></div>
+        <div class="big-info"><div class="big-name"></div><div class="big-val"></div>
+        <div class="big-peak"><span>${esc(t('big.peak'))}</span> <span class="pk"></span></div>
+        <div><span class="big-clip" hidden>CLIP</span></div></div>`;
+      card.querySelector('.big-name').textContent = m.label;
+      grid.appendChild(card);
+      return { st: m, cover: card.querySelector('.cover'), hold: card.querySelector('.hold'),
+        val: card.querySelector('.big-val'), pk: card.querySelector('.pk'), clip: card.querySelector('.big-clip') };
+    });
+    layoutBig();
+    $('big').hidden = false;
+    bigLastText = 0;
+  }
+  // Reparto: en vertical, apiladas (una columna hasta 4 canales); en horizontal, en fila (hasta 4 por fila).
+  function layoutBig() {
+    const n = bigCards.length;
+    if (!n) return;
+    const landscape = innerWidth > innerHeight;
+    const cols = landscape ? Math.min(n, 4) : n <= 4 ? 1 : 2;
+    const rows = Math.ceil(n / cols);
+    $('bigGrid').style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    $('bigGrid').style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  }
+  window.addEventListener('resize', layoutBig);
+  function closeBig() { bigCards = []; $('big').hidden = true; }
+  $('big').addEventListener('click', closeBig);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && bigCards.length) closeBig(); });
+  function renderBig(now) {
+    const text = now - bigLastText > 120; // cifras a ~8 por segundo para que se puedan leer
+    if (text) bigLastText = now;
+    for (const c of bigCards) {
+      const st = c.st;
+      c.cover.style.transform = `scaleY(${1 - pos(st.disp)})`;
+      c.hold.style.transform = `translateY(${(1 - pos(st.peak)) * 100}%)`;
+      c.hold.style.display = holdForever ? '' : 'none';
+      if (text) {
+        c.val.innerHTML = `${st.target <= -89 ? '−∞' : fmtNum(st.target)}<small>dB</small>`;
+        c.pk.textContent = st.maxSeen <= -89 ? '—' : `${fmtNum(st.maxSeen)} dB`;
+        c.clip.hidden = !st.clip;
+      }
+    }
+  }
+
+  // =============== Mensajes y line check (compartidos entre sala y escenario) ===============
+  const MSG_KEYS = ['msg.ready', 'msg.battery', 'msg.cable', 'msg.noSignal', 'msg.noise', 'msg.come', 'msg.wait', 'msg.ok'];
+  const myIds = new Set(); // mensajes enviados desde este móvil (por su identificador)
+  let msgs = [], linkWs = null, linkOk = ROLE === 'sala', lcState = { active: false, items: [] };
+  const myName = () => store.get('name', '');
+  const msgText = (m) => (m.key ? t(m.key) : m.text);
+  const whoText = (from, name) => t('msgs.from.' + from) + (name ? ` · ${name}` : '');
+
+  // En escenario, los mensajes y el line check van por el enlace con la app de sala (puerto 3000 del mismo ordenador).
+  function sendShared(obj) {
+    const sock = ROLE === 'sala' ? ws : linkWs;
+    if (sock && sock.readyState === 1) { sock.send(JSON.stringify(obj)); return true; }
+    toast(t('msgs.linkOff'));
+    return false;
+  }
+  function connectLink() {
+    if (ROLE !== 'escenario') return;
+    const host = store.get('salaHost', '') || `${location.hostname}:3000`;
+    try { linkWs = new WebSocket(`ws://${host}/enlace`); } catch { linkWs = null; }
+    if (!linkWs) return setTimeout(connectLink, 3000);
+    linkWs.onopen = () => { linkOk = true; renderLinkState(); };
+    linkWs.onmessage = (e) => { try { onShared(JSON.parse(e.data)); } catch {} };
+    linkWs.onclose = () => { linkOk = false; renderLinkState(); setTimeout(connectLink, 3000); };
+  }
+  function renderLinkState() {
+    const el = $('msgLink');
+    el.hidden = ROLE === 'sala';
+    el.classList.toggle('off', !linkOk);
+    el.textContent = t(linkOk ? 'msgs.linkOn' : 'msgs.linkOff');
+  }
+
+  function onShared(m) {
+    if (m.type === 'msgs') { msgs = m.list || []; renderMsgs(); updateMsgBadge(); return true; }
+    if (m.type === 'msg') {
+      msgs.push(m.m); if (msgs.length > 60) msgs.shift();
+      if (!myIds.has(m.m.cid)) showBanner(m.m);
+      renderMsgs(); updateMsgBadge();
+      return true;
+    }
+    if (m.type === 'msg-ack') {
+      const x = msgs.find((y) => y.id === m.id);
+      if (x) { x.acks = m.acks; renderMsgs(); }
+      return true;
+    }
+    if (m.type === 'lc') { lcState = m; renderLc(); return true; }
+    return false;
+  }
+
+  // --- Aviso grande de mensaje recibido, hasta pulsar "Visto"
+  const pending = [];
+  function showBanner(m) {
+    pending.push(m);
+    try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch {}
+    renderBanner();
+  }
+  function renderBanner() {
+    const m = pending[0];
+    $('msgBanner').hidden = !m;
+    if (!m) return;
+    $('bannerWho').textContent = `${whoText(m.from, m.name)} · ${fmtClock(m.t)}${pending.length > 1 ? ` · +${pending.length - 1}` : ''}`;
+    $('bannerTxt').innerHTML = `${esc(msgText(m))}${m.ch ? `<span class="ch">${esc(m.ch)}</span>` : ''}`;
+  }
+  $('bannerOk').onclick = () => {
+    const m = pending.shift();
+    if (m) sendShared({ type: 'msg-ack', id: m.id, from: ROLE, name: myName() });
+    renderBanner(); updateMsgBadge();
+  };
+
+  // --- Ventana de mensajes
+  function updateMsgBadge() {
+    const n = pending.length;
+    $('msgBadge').hidden = !n;
+    $('msgBadge').textContent = String(n);
+  }
+  function renderMsgs() {
+    const ul = $('msgList');
+    if (!msgs.length) { ul.innerHTML = `<li class="empty-row">${esc(t('msgs.empty'))}</li>`; return; }
+    ul.innerHTML = msgs.slice(-40).map((m) => {
+      const mine = myIds.has(m.cid);
+      const acks = (m.acks || []).map((a) => whoText(a.from, a.name)).join(', ');
+      return `<li class="${mine ? 'mine' : ''}"><div class="meta"><span>${esc(whoText(m.from, m.name))}</span><time>${fmtClock(m.t)}</time></div>
+        <div class="body">${m.ch ? `<b>${esc(m.ch)}</b>` : ''}${esc(msgText(m))}</div>
+        ${acks ? `<div class="ack">✓ ${esc(t('msgs.seenBy', { who: acks }))}</div>` : ''}</li>`;
+    }).join('');
+    ul.scrollTop = ul.scrollHeight;
+  }
+  function fillChannels(pre) {
+    const sel = $('msgCh');
+    const opts = [`<option value="">${esc(t('msgs.noChannel'))}</option>`];
+    for (const st of strips) if (st.gid === 'ch') opts.push(`<option>${esc(st.label)}</option>`);
+    sel.innerHTML = opts.join('');
+    sel.value = pre || '';
+  }
+  function openMsgs(preChannel) {
+    fillChannels(preChannel);
+    renderLinkState(); renderMsgs();
+    $('msgQuick').innerHTML = MSG_KEYS.map((k) => `<button data-k="${k}">${esc(t(k))}</button>`).join('');
+    $('msgQuick').querySelectorAll('button').forEach((b) => b.onclick = () => sendMsg({ key: b.dataset.k }));
+    if (!$('msgDlg').open) $('msgDlg').showModal();
+  }
+  function sendMsg(body) {
+    const cid = Math.random().toString(36).slice(2, 10);
+    myIds.add(cid);
+    if (sendShared({ type: 'msg-send', from: ROLE, name: myName(), ch: $('msgCh').value, cid, ...body })) {
+      $('msgText').value = '';
+      $('msgCh').value = ''; // el siguiente mensaje empieza sin canal, para no repetir uno por error
+      toast(t('msgs.sent'));
+    }
+  }
+  $('msgBtn').onclick = () => openMsgs();
+  $('closeMsgs').onclick = () => $('msgDlg').close();
+  $('msgSend').onclick = () => { const v = $('msgText').value.trim(); if (v) sendMsg({ text: v }); };
+  $('msgText').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('msgSend').click(); });
+
+  // --- Line check
+  let lcRows = [];
+  function renderLc() {
+    if (!$('lcDlg').open) return;
+    const items = lcState.items || [];
+    const ok = items.filter((x) => x.ok).length, noisy = items.filter((x) => x.noise).length;
+    $('lcStart').textContent = t(items.length ? 'lc.restart' : 'lc.start');
+    $('lcStop').hidden = !lcState.active;
+    $('lcProg').innerHTML = items.length
+      ? `${esc(t('lc.progress', { ok, n: items.length }))}${noisy ? `<small>${esc(t('lc.noiseCount', { n: noisy }))}</small>` : ''}`
+      : '';
+    $('lcHint').textContent = !items.length ? t('lc.idle') : lcState.active ? t('lc.tapHint') : t('lc.finished');
+    const ul = $('lcList');
+    if (lcRows.length !== items.length) {
+      ul.innerHTML = '';
+      lcRows = items.map(() => {
+        const li = document.createElement('li');
+        li.innerHTML = '<span class="nm"></span><span class="lvl"><i></i></span><span class="st"></span>';
+        li.onclick = () => { $('lcDlg').close(); openMsgs(li.dataset.label); };
+        ul.appendChild(li);
+        return { li, nm: li.querySelector('.nm'), bar: li.querySelector('.lvl i'), st: li.querySelector('.st') };
+      });
+    }
+    const onlyPending = $('lcPending').checked;
+    items.forEach((it, k) => {
+      const r = lcRows[k];
+      r.li.dataset.label = it.label;
+      r.nm.textContent = it.label;
+      r.bar.style.width = `${Math.round(pos(lcState.active ? it.level : -90) * 100)}%`;
+      r.li.classList.toggle('ok', it.ok);
+      r.li.classList.toggle('noise', it.noise);
+      r.st.textContent = [it.ok ? `✓ ${fmtNum(it.peak)} dB` : '', it.noise ? `⚠ ${t('lc.noise')}` : '', !it.ok && !it.noise ? t('lc.pending') : ''].filter(Boolean).join(' · ');
+      r.li.hidden = onlyPending && it.ok && !it.noise;
+    });
+    const missing = items.filter((x) => !x.ok).map((x) => x.label.split(' ')[0]);
+    $('lcSum').textContent = items.length && !lcState.active ? t('lc.missing', { list: missing.length ? missing.join(', ') : t('lc.none') }) : '';
+  }
+  $('openLc').onclick = () => {
+    if (ROLE === 'escenario' && !linkOk) return toast(t('msgs.linkOff'));
+    dlg.close();
+    $('lcPending').checked = store.get('lcPending', false);
+    $('lcDlg').showModal();
+    lcRows = []; renderLc();
+  };
+  $('lcStart').onclick = () => { sendShared({ type: 'lc-start' }); };
+  $('lcStop').onclick = () => { sendShared({ type: 'lc-stop' }); };
+  $('lcPending').onchange = () => { store.set('lcPending', $('lcPending').checked); renderLc(); };
+  $('closeLc').onclick = () => $('lcDlg').close();
+
+  // --- Ajustes: nombre y dirección de la app de sala
+  $('optName').value = myName();
+  $('optName').onchange = () => store.set('name', $('optName').value.trim());
+  $('salaHostRow').hidden = ROLE !== 'escenario';
+  $('optSalaHost').value = store.get('salaHost', '') || `${location.hostname}:3000`;
+  $('optSalaHost').onchange = () => {
+    const v = $('optSalaHost').value.trim();
+    store.set('salaHost', v === `${location.hostname}:3000` ? '' : v);
+    if (linkWs) linkWs.close(); // reconecta con la nueva dirección
+  };
+  if (ROLE === 'escenario') { $('reportBtn').hidden = true; connectLink(); }
+  renderLinkState();
+
+  // --- Idioma (se guarda en cada móvil; al cambiarlo se recarga la página)
+  for (const sel of [$('optLang'), $('setupLang')]) {
+    sel.innerHTML = Object.entries(LANGS).map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
+    sel.value = LANG;
+    sel.onchange = () => {
+      try { localStorage.setItem('medidores:lang', sel.value); } catch {}
+      location.reload();
+    };
+  }
+  // Etiquetas "Canal N →" del formulario Shure
+  document.querySelectorAll('.shch').forEach((el) => { el.textContent = t('sh.ch', { n: el.dataset.n }); });
+
+  // --- Punto de medida de los canales de entrada (lo guarda el ordenador puente)
+  function onMeterPoint(m) {
+    $('mpRow').hidden = !m.supported;
+    meterPoint = m.supported ? m.value : null;
+    $('optMp').value = m.value;
+    refreshGroupHeads();
+  }
+  $('optMp').onchange = () => {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'meter-point', value: $('optMp').value }));
+  };
+
+  // Mantener la pantalla encendida si el navegador lo permite (solo en https o localhost).
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator && document.visibilityState === 'visible') await navigator.wakeLock.request('screen'); } catch {}
+  }
+  keepAwake();
+  document.addEventListener('visibilitychange', keepAwake);
+
+  let toastTimer;
+  function toast(text) {
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+})();
+</script>
+</body>
+</html>
