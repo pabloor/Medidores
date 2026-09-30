@@ -99,6 +99,7 @@
   }
   .scale span { position: absolute; right: 4px; transform: translateY(50%); font-variant-numeric: tabular-nums; }
   .scroller { overflow-x: auto; overflow-y: hidden; display: flex; gap: 14px; padding-right: 10px; scroll-snap-type: x proximity; }
+  .pinned[hidden] { display: none; }
   .pinned { display: flex; padding: 0 10px 0 12px; border-left: 1px solid var(--line); background: var(--stage); }
   .group { display: flex; flex-direction: column; scroll-snap-align: start; }
   .group[hidden] { display: none; }
@@ -756,12 +757,16 @@
       });
       (g.id === 'main' ? pinned : scroller).appendChild(sec);
 
-      if (g.id !== 'main') {
+      {
         const chip = document.createElement('button');
         chip.className = 'chip';
         chip.style.setProperty('--gc', color);
         chip.textContent = groupName(g);
-        const apply = () => { chip.setAttribute('aria-pressed', String(!hidden.has(g.id))); sec.hidden = hidden.has(g.id); };
+        const apply = () => {
+          chip.setAttribute('aria-pressed', String(!hidden.has(g.id)));
+          sec.hidden = hidden.has(g.id);
+          if (g.id === 'main') pinned.hidden = hidden.has(g.id); // la columna fija del Stereo, con su borde
+        };
         chip.addEventListener('click', () => {
           hidden.has(g.id) ? hidden.delete(g.id) : hidden.add(g.id);
           store.set('hidden', [...hidden]);
