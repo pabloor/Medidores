@@ -26,9 +26,17 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const SHURE_FILE = path.join(DATA_DIR, 'shure.json');
 const PREFS_FILE = path.join(DATA_DIR, 'prefs.json');
 const METER_POINTS = ['PreHPF', 'PreFader', 'PostOn'];
-let prefs = { meterPoint: 'PreHPF' };
+let prefs = { meterPoint: 'PreHPF', controlKey: '' };
 try { prefs = { ...prefs, ...JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')) }; } catch {}
+// Clave de control: quien abre la app con ella (?k=...) puede mover la mesa; los demás solo ven la medición.
+// Este mismo ordenador (la ventana del Mac) siempre tiene control.
+const newControlKey = () => crypto.randomBytes(9).toString('base64url');
+const keyWasMissing = !prefs.controlKey;
+if (keyWasMissing) prefs.controlKey = newControlKey();
+const isLoopback = (sock) => ['127.0.0.1', '::1'].includes(String(sock.remoteAddress || '').replace(/^::ffff:/, ''));
+const sameKey = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const savePrefs = () => { try { fs.writeFileSync(PREFS_FILE, JSON.stringify(prefs, null, 2)); } catch (e) { console.error('No se pudo guardar prefs.json:', e.message); } };
+if (keyWasMissing) savePrefs(); // la clave debe sobrevivir a los reinicios: los QR ya repartidos tienen que seguir valiendo
 // Huella de la versión de la app (código del servidor, drivers y página). Sirve para:
 //  - que los móviles con una copia antigua de la página se recarguen solos;
 //  - que el lanzador detecte si está en marcha una versión anterior y la reinicie.
@@ -331,7 +339,11 @@ const server = http.createServer((req, res) => {
   if (p === '/qr.svg') {
     const i = Number(new URL(req.url, 'http://x').searchParams.get('i')) || 0;
     const urls = lanUrls();
-    const url = urls[i] || urls[0] || `http://localhost:${PORT}`;
+    let url = urls[i] || urls[0] || `http://localhost:${PORT}`;
+    if (new URL(req.url, 'http://x').searchParams.get('role') === 'control') {
+      if (!isLoopback(req.socket)) { res.writeHead(403); return res.end(); }
+      url = `${url.replace(/\/$/, '')}/?k=${prefs.controlKey}`;
+    }
     return QRCode.toString(url, { type: 'svg', margin: 1, color: { dark: '#141925', light: '#ffffff' } }).then((svg) => {
       res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache' });
       res.end(svg);
@@ -457,6 +469,9 @@ const encVal = (v) => (v === -Infinity ? '-inf' : v);
 const enc = (c) => ({ caps: c.caps, ch: c.ch.map(encStrip), main: c.main.map(encStrip), bus: (c.bus || []).map(encStrip), mtx: (c.mtx || []).map(encStrip) });
 const encStrip = (s) => ({ ...s, fader: encVal(s.fader) });
 const meterPointMsg = () => ({ type: 'meter-point', value: prefs.meterPoint, supported: !!(driver && typeof driver.setMeterPoint === 'function') });
+const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'meter-point', 'history-clear', 'clip-log-clear']);
+// La clave solo se le muestra al propio ordenador (para el QR de control).
+const roleMsg = (ws) => ({ type: 'role', role: ws.canControl ? 'control' : 'viewer', ...(ws.local ? { key: prefs.controlKey } : {}) });
 const infoMsg = () => ({ type: 'config', config: state.config, urls: lanUrls(), ifaces: lanAddresses().map((a) => a.name), version: APP_VERSION });
 
 function startDriver(cfg) {
@@ -501,12 +516,16 @@ linkWss.on('connection', (ws) => {
 
 wss.on('connection', (ws, req) => {
   // Si se conecta un móvil (no este mismo ordenador), apuntamos por qué dirección ha llegado.
-  const local = String(req.socket.localAddress || '').replace(/^::ffff:/, '');
+  const localAddr = String(req.socket.localAddress || '').replace(/^::ffff:/, '');
   const remote = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-  if (net.isIPv4(local) && !local.startsWith('127.') && remote !== local && local !== provenAddress) {
-    provenAddress = local;
+  if (net.isIPv4(localAddr) && !localAddr.startsWith('127.') && remote !== localAddr && localAddr !== provenAddress) {
+    provenAddress = localAddr;
     setImmediate(() => broadcast(infoMsg()));
   }
+  const local = isLoopback(req.socket);
+  ws.local = local;
+  ws.canControl = local || sameKey(new URL(req.url, 'http://x').searchParams.get('k'), prefs.controlKey);
+  ws.send(JSON.stringify(roleMsg(ws)));
   ws.send(JSON.stringify(infoMsg()));
   ws.send(JSON.stringify({ type: 'status', ...state.status }));
   if (state.layout) ws.send(JSON.stringify({ type: 'layout', ...state.layout }));
@@ -523,6 +542,13 @@ wss.on('connection', (ws, req) => {
     try { msg = JSON.parse(m); } catch { return; }
     if (msg.type === 'raw') ws.wantsRaw = !!msg.on;
     if (ROLE === 'sala' && handleShared(ws, msg)) return;
+    // Quien no tiene la clave solo puede medir: nada de lo que modifica la mesa o los ajustes compartidos.
+    if (!ws.canControl && CONTROL_ONLY.has(msg.type)) return;
+    if (msg.type === 'control-key-regen' && ws.local) {
+      prefs.controlKey = newControlKey(); savePrefs();
+      for (const c of wss.clients) if (!c.local) { c.canControl = false; c.send(JSON.stringify(roleMsg(c))); c.close(); }
+      return ws.send(JSON.stringify(roleMsg(ws)));
+    }
     if (msg.type === 'history-get') {
       const keys = validKeys(msg.keys);
       return ws.send(JSON.stringify({ type: 'history', keys, ...historyFor(keys, 1200) }));

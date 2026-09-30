@@ -194,6 +194,13 @@
   .field[hidden], .ports[hidden] { display: none; }
   .ports { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .error { color: var(--hot); font-size: 15px; min-height: 1.2em; margin: 10px 0 0; }
+  .role-seg { display: flex; gap: 6px; margin: 0 0 12px; }
+  .role-seg button { flex: 1; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
+  .role-seg button[aria-pressed="true"] { border-color: var(--sig); box-shadow: inset 0 0 0 1px var(--sig); }
+  #roleHint { color: var(--muted); font-size: 14px; line-height: 1.3; margin: 10px 0 0; }
+  #regenKey { margin-top: 10px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 14px; cursor: pointer; }
+  /* Sin la clave de control solo se puede medir: se ocultan los ajustes que modifican la mesa. */
+  body.viewer #changeMixer, body.viewer #clearLog, body.viewer #clearHistory, body.viewer #mpRow, body.viewer #ctrlSettings { display: none !important; }
   .qr { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center; }
   .qr img { width: 150px; height: 150px; border-radius: 8px; background: #fff; }
   .qr p { margin: 0 0 8px; }
@@ -575,6 +582,10 @@
 
 <dialog id="phone" aria-labelledby="phoneTitle">
   <h2 id="phoneTitle" data-i18n="phone.title"></h2>
+  <div class="role-seg" id="roleSeg" hidden>
+    <button id="roleView" aria-pressed="true" data-i18n="phone.roleView"></button>
+    <button id="roleCtl" aria-pressed="false" data-i18n="phone.roleCtl"></button>
+  </div>
   <div class="qr">
     <img src="qr.svg" data-i18n-alt="phone.qrAlt">
     <div>
@@ -583,6 +594,8 @@
       <small data-i18n="phone.sameWifi"></small>
     </div>
   </div>
+  <p id="roleHint" hidden></p>
+  <button id="regenKey" hidden data-i18n="phone.regen"></button>
   <div class="addr" id="phoneAddrs" hidden>
     <p data-i18n="phone.other"></p>
     <div id="phoneAddrList"></div>
@@ -674,6 +687,13 @@
     get(k, d) { try { const v = localStorage.getItem('medidores:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem('medidores:' + k, JSON.stringify(v)); } catch {} },
   };
+
+  // Clave de control: llega en el enlace (?k=...) y el móvil la recuerda. Sin ella, la app solo mide.
+  {
+    const u = new URL(location.href), k = u.searchParams.get('k');
+    if (k) { store.set('ck', k); u.searchParams.delete('k'); history.replaceState(null, '', u); }
+  }
+  let canControl = false, controlKey = '';
 
   // Escala tipo consola: más resolución cerca de 0 dBFS.
   const PTS = [[-60, 0], [-48, .1], [-36, .24], [-24, .42], [-18, .53], [-12, .66], [-6, .82], [-3, .91], [0, 1]];
@@ -849,12 +869,13 @@
   // --- Conexión con el servidor puente
   let ws, wantRaw = false;
   function connect() {
-    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?k=${encodeURIComponent(store.get('ck', ''))}`;
     ws = new WebSocket(url);
     ws.onopen = () => { if (wantRaw) ws.send(JSON.stringify({ type: 'raw', on: true })); };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
-      if (m.type === 'meters') onMeters(m.g);
+      if (m.type === 'role') onRole(m);
+      else if (m.type === 'meters') onMeters(m.g);
       else if (m.type === 'layout') {
         buildLayout(m);
         document.title = REPORT_ONLY ? `${t('rep.title')} · ${m.mixer.name}` : `${t('title')}: ${m.mixer.name}`;
@@ -884,7 +905,7 @@
   function setStatus(state, text) {
     $('status').dataset.state = state;
     $('statusText').textContent = text;
-    if (state === 'setup' && !setup.open) openSetup();
+    if (state === 'setup' && !setup.open && canControl) openSetup();
     if (state !== 'connected' && !strips.length) showEmpty(text);
   }
   function showEmpty(text) {
@@ -946,12 +967,30 @@
     digico: ['hint.digico', 'setup.ip'],
     sim: ['hint.sim', null],
   };
-  let current = null, chosen = null, urls = [], ifaces = [], addrIndex = 0;
+  let current = null, chosen = null, urls = [], ifaces = [], addrIndex = 0, qrRole = 'view';
+  function onRole(m) {
+    canControl = m.role === 'control';
+    controlKey = m.key || '';
+    document.body.classList.toggle('viewer', !canControl);
+    if (!canControl) { $('modes').hidden = true; $('ctrlSettings').hidden = true; setMode('meters', false); }
+    else { $('modes').hidden = !ctrl; $('ctrlSettings').hidden = !ctrl; }
+    showAddr(Math.min(addrIndex, Math.max(0, urls.length - 1)));
+  }
+  $('roleView').onclick = () => { qrRole = 'view'; showAddr(addrIndex); };
+  $('roleCtl').onclick = () => { qrRole = 'control'; showAddr(addrIndex); };
+  $('regenKey').onclick = () => { if (confirm(t('phone.regenConfirm')) && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'control-key-regen' })); };
   // Ventana del QR: dirección elegida y, si el Mac tiene varias, la lista para cambiarla.
   function showAddr(i) {
     addrIndex = i;
-    $('phoneUrl').textContent = urls[i] || t('phone.noNet');
-    document.querySelector('#phone .qr img').src = `qr.svg?i=${i}&t=${Date.now()}`;
+    const ctl = qrRole === 'control' && controlKey;
+    $('phoneUrl').textContent = urls[i] ? (ctl ? `${urls[i].replace(/\/$/, '')}/?k=${controlKey}` : urls[i]) : t('phone.noNet');
+    document.querySelector('#phone .qr img').src = `qr.svg?i=${i}${ctl ? '&role=control' : ''}&t=${Date.now()}`;
+    $('roleSeg').hidden = !controlKey;
+    $('roleView').setAttribute('aria-pressed', String(!ctl));
+    $('roleCtl').setAttribute('aria-pressed', String(!!ctl));
+    $('roleHint').hidden = !controlKey;
+    $('roleHint').textContent = t(ctl ? 'phone.ctlHint' : 'phone.viewHint');
+    $('regenKey').hidden = !ctl;
     $('phoneAddrs').hidden = urls.length < 2;
     $('phoneAddrList').innerHTML = '';
     urls.forEach((u, k) => {
@@ -1022,7 +1061,7 @@
     if (isLocal && urls.length && !store.get('phoneShown', false)) { store.set('phoneShown', true); $('phone').showModal(); }
   };
   $('ipInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('setupConnect').click(); });
-  $('status').onclick = openSetup;
+  $('status').onclick = () => { if (canControl) openSetup(); else toast(t('role.viewer')); };
   $('changeMixer').onclick = openSetup;
   $('openPhone').onclick = () => $('phone').showModal();
   $('closePhone').onclick = () => $('phone').close();
@@ -1077,8 +1116,8 @@
     }
     applyLayer();
     relabelControl();
-    $('modes').hidden = false;
-    $('ctrlSettings').hidden = false;
+    $('modes').hidden = !canControl;
+    $('ctrlSettings').hidden = !canControl;
     setMode(store.get('mode', 'meters'), false);
   }
 
@@ -1389,7 +1428,7 @@
   }
 
   function setMode(m, save = true) {
-    mode = m === 'control' && ctrl ? 'control' : 'meters';
+    mode = m === 'control' && ctrl && canControl ? 'control' : 'meters';
     document.body.dataset.mode = mode;
     $('modes').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
     $('lockBtn').hidden = mode !== 'control';

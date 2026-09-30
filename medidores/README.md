@@ -38,6 +38,17 @@ Al actualizar la app (sustituyendo la carpeta), basta con volver a hacer doble c
     node server.js --driver sim                      # simulador
     node server.js --port 8080                       # otro puerto
 
+## Quién puede controlar la mesa
+
+Hay dos niveles de acceso:
+
+- **Medición** (por defecto): quien abre la app sin clave ve los medidores, el registro, el historial, los mensajes y el line check, pero no puede mover nada en la mesa ni cambiar ajustes compartidos. No ve la pestaña Control.
+- **Control**: además mueve faders, ON y ganancias, cambia de mesa y de punto de medida, configura los Shure y borra el registro y el historial.
+
+Este mismo ordenador (la ventana de la app) siempre tiene control. Para dar control a un móvil, pulsa el botón del móvil (arriba), elige **Control** y escanea ese código: el móvil recuerda la clave. El código de **Medición** es el enlace normal, sin clave. **Generar una clave nueva** anula el código de control anterior y desconecta los móviles que lo usaban; los demás siguen midiendo.
+
+La clave se guarda en `prefs.json` y se conserva al reiniciar, así que los códigos ya repartidos siguen valiendo. Es una protección pensada para evitar accidentes en una red local, no un sistema de seguridad: el tráfico no va cifrado. Al actualizar desde una versión sin claves, los móviles ya conectados pasan a modo medición hasta que escaneen el código de control.
+
 ## Registro del bolo y vista grande
 
 - **Registro de saturaciones:** cada vez que un canal llega a 0 dB, se apunta con su nombre, la hora y el pico, y aparece un aviso breve en todos los móviles. Las saturaciones seguidas del mismo canal (menos de 3 segundos entre ellas) cuentan como una. El botón de la gráfica, arriba, abre el registro y muestra cuántas saturaciones no has visto todavía.
