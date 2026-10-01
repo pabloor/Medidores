@@ -2,6 +2,8 @@
   "name": "medidores-mesa-solo-lectura",
   "version": "0.1.0",
   "description": "Medidores de una mesa de mezclas digital en el móvil, por wifi (escenario, solo lectura)",
+  "author": "Pablo Olivares Rodriguez",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

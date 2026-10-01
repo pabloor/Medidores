@@ -35,3 +35,7 @@ Solo cambia el código de la app (interfaz, servidores, menú), no el Electron q
     npm run build:mac     # deja dist/Medidores-Apple-Silicon.zip, dist/Medidores-Intel.zip y dist/update.tar.gz
 
 Se puede ejecutar en Linux o macOS. Desde Linux no se puede firmar: por eso existe el instalador.
+
+## Licencia
+
+Copyright © 2026 Pablo Olivares Rodriguez. **Todos los derechos reservados.** Medidores es software propietario: no se puede copiar, modificar ni redistribuir sin permiso por escrito del titular. Que el código sea visible en este repositorio no concede ninguna licencia de uso. Las librerías de terceros que incluye (Electron, ws, qrcode) mantienen sus propias licencias. Ver [LICENSE](LICENSE).

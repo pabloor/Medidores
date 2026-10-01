@@ -1,0 +1,70 @@
+Copyright (c) 2026 Pablo Olivares Rodriguez. Todos los derechos reservados.
+Copyright (c) 2026 Pablo Olivares Rodriguez. All rights reserved.
+
+ESPAÑOL
+
+Este software y su documentación (en adelante, "Medidores") son propiedad de
+Pablo Olivares Rodriguez. No se concede ninguna licencia ni derecho sobre
+Medidores salvo lo que se indica expresamente a continuación o lo que el
+titular autorice por escrito.
+
+Queda prohibido, sin autorización previa y por escrito del titular:
+  - copiar, reproducir o redistribuir Medidores, total o parcialmente;
+  - modificarlo, adaptarlo o crear obras derivadas;
+  - venderlo, alquilarlo, sublicenciarlo o ponerlo a disposición de terceros;
+  - descompilar o extraer su código para reutilizarlo en otros proyectos.
+
+Se permite al titular y a las personas que este autorice expresamente usar
+Medidores para su finalidad prevista (medición y control de mesas de mezclas).
+
+El hecho de que el código sea visible en un repositorio público no implica
+ninguna licencia de uso, copia ni modificación.
+
+Medidores se ofrece "tal cual", sin garantía de ningún tipo. El titular no será
+responsable de daños derivados de su uso, incluidos los que afecten a equipos
+de sonido o a eventos en directo.
+
+Componentes de terceros: Medidores incluye o utiliza software de terceros
+(entre otros, Electron, ws y qrcode), que se rige por sus propias licencias y
+cuyos avisos se conservan en los componentes correspondientes. Esta licencia
+no modifica los derechos que esas licencias conceden sobre dichos componentes.
+
+Los nombres de marcas de terceros (Yamaha, Behringer, Midas, DiGiCo, Shure,
+Dante y otros) se citan únicamente para indicar compatibilidad y pertenecen a
+sus respectivos propietarios. Medidores no es un producto oficial de esas
+marcas.
+
+Para solicitar permiso de uso: contacta con el titular.
+
+ENGLISH
+
+This software and its documentation ("Medidores") are the property of
+Pablo Olivares Rodriguez. No licence or right to Medidores is granted except
+as expressly stated below or as the owner authorises in writing.
+
+Without the owner's prior written permission, you may not:
+  - copy, reproduce or redistribute Medidores, in whole or in part;
+  - modify it, adapt it or create derivative works;
+  - sell, rent, sublicense or make it available to third parties;
+  - decompile it or extract its code for reuse in other projects.
+
+The owner, and persons expressly authorised by the owner, may use Medidores
+for its intended purpose (metering and control of mixing consoles).
+
+The fact that the code is visible in a public repository does not grant any
+licence to use, copy or modify it.
+
+Medidores is provided "as is", without warranty of any kind. The owner is not
+liable for any damage arising from its use, including damage to audio
+equipment or live events.
+
+Third-party components: Medidores includes or uses third-party software
+(including Electron, ws and qrcode), which is governed by its own licences and
+whose notices are kept with the corresponding components. This licence does not
+change the rights those licences grant over those components.
+
+Third-party brand names (Yamaha, Behringer, Midas, DiGiCo, Shure, Dante and
+others) are mentioned only to indicate compatibility and belong to their
+respective owners. Medidores is not an official product of those brands.
+
+To request permission to use it, contact the owner.

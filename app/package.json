@@ -2,6 +2,8 @@
   "name": "medidores-app",
   "version": "0.1.0",
   "description": "Medidores de la mesa: app de Mac con servidor integrado",
+  "author": "Pablo Olivares Rodriguez",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "main.js",
   "private": true,
   "dependencies": {

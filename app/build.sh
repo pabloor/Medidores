@@ -13,7 +13,7 @@ EV=$(node -p "require('electron/package.json').version")
 echo "==> Preparando el contenido de la app"
 VERSION="${VERSION:-$(date -u +%Y%m%d-%H%M)}"   # orden alfabético = orden cronológico; el workflow la fija para que coincida con el tag
 echo "==> Versión $VERSION"
-cp app/main.js app/app-main.js app/updater.js app/package.json "$STAGE/"
+cp app/main.js app/app-main.js app/updater.js app/package.json LICENSE "$STAGE/"
 echo "{\"version\":\"$VERSION\"}" > "$STAGE/version.json"
 for d in medidores medidores-solo; do
   mkdir -p "$STAGE/$d"

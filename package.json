@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Medidores de la mesa: servidores (sala y escenario) y app de Mac",
+  "author": "Pablo Olivares Rodriguez",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "build:mac": "bash app/build.sh"
   },
