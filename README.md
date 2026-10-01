@@ -18,9 +18,20 @@ Una sola app con ventana propia: lleva dentro el servidor, sin Node.js, Terminal
 
 Los datos (mesa elegida, preferencias) se guardan en `~/Library/Application Support/medidores-app`; el menú **Servidor → Abrir carpeta de datos** la abre.
 
+### Actualizaciones automáticas
+
+La app se actualiza sola, sin desinstalar ni volver a instalar:
+
+- Al abrirla (y cada hora) comprueba si hay una release más nueva en GitHub y, si la hay, descarga solo el código nuevo (unos 500 KB) en segundo plano.
+- Te avisa con **Reiniciar ahora / Más tarde**. Nunca se reinicia sola, así que no se interrumpe un directo. También está en el menú **Medidores → Reiniciar para actualizar** y **Buscar actualizaciones…**.
+- El código descargado se guarda en `~/Library/Application Support/medidores-app/update`, fuera de la `.app`, por lo que la firma local no se rompe.
+- Si una actualización falla al arrancar, se descarta y vuelve a usarse el código instalado.
+
+Solo cambia el código de la app (interfaz, servidores, menú), no el Electron que lleva dentro. Si algún día hace falta uno nuevo, habrá que instalar el ZIP completo otra vez; las releases lo indicarán. La primera versión con actualizaciones hay que instalarla a mano; a partir de ahí, ya no.
+
 ### Construir los ZIP
 
     npm install
-    npm run build:mac     # deja dist/Medidores-Apple-Silicon.zip y dist/Medidores-Intel.zip
+    npm run build:mac     # deja dist/Medidores-Apple-Silicon.zip, dist/Medidores-Intel.zip y dist/update.tar.gz
 
 Se puede ejecutar en Linux o macOS. Desde Linux no se puede firmar: por eso existe el instalador.

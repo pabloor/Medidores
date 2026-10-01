@@ -11,12 +11,18 @@ mkdir -p "$STAGE" "$DIST" "$ROOT/build/zips"
 EV=$(node -p "require('electron/package.json').version")
 
 echo "==> Preparando el contenido de la app"
-cp app/main.js app/package.json "$STAGE/"
+VERSION="${VERSION:-$(date -u +%Y%m%d-%H%M)}"   # orden alfabético = orden cronológico; el workflow la fija para que coincida con el tag
+echo "==> Versión $VERSION"
+cp app/main.js app/app-main.js app/updater.js app/package.json "$STAGE/"
+echo "{\"version\":\"$VERSION\"}" > "$STAGE/version.json"
 for d in medidores medidores-solo; do
   mkdir -p "$STAGE/$d"
   (cd "$d" && tar cf - --exclude=node_modules --exclude='*.command' --exclude=config.json --exclude=prefs.json --exclude=shure.json --exclude='README*' --exclude=tools .) | (cd "$STAGE/$d" && tar xf -)
 done
 (cd "$STAGE" && npm install --omit=dev --no-audit --no-fund >/dev/null)
+
+# Paquete de actualización: solo el código (la app lo baja y lo usa en el siguiente arranque). No lleva el Electron.
+(cd "$STAGE" && tar --owner=0 --group=0 --numeric-owner -czf "$DIST/update.tar.gz" app-main.js updater.js version.json medidores medidores-solo node_modules)
 
 echo "==> Icono"
 ICON_DIR="$ROOT/build/icon"; mkdir -p "$ICON_DIR"

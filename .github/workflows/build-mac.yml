@@ -14,11 +14,13 @@ jobs:
         with: { node-version: 22 }
       - run: npm install --no-audit --no-fund
         env: { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' }
+      - name: Versión
+        run: echo "VERSION=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_ENV"
       - run: npm run build:mac
       # Publica los ZIP en una Release (enlace de descarga directa, sin entrar en Actions).
       - name: Publicar release
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
-          TAG="mac-$(date +%Y%m%d-%H%M)"
-          gh release create "$TAG" dist/*.zip --target "$GITHUB_SHA" --title "Medidores.app ($TAG)" \
+          TAG="mac-$VERSION"
+          gh release create "$TAG" dist/*.zip dist/update.tar.gz --target "$GITHUB_SHA" --title "Medidores.app ($TAG)" \
             --notes "Medidores.app para Mac. Elige Apple-Silicon (M1–M4) o Intel, descomprime y abre «Instalar Medidores.command»."
