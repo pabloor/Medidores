@@ -131,7 +131,10 @@ function sanitize(input) {
 }
 
 // --- Receptores Shure: ganancia en canales de la mesa sin previo (p. ej. inalámbricos por Dante).
-// shure.json: [{ "ip": "192.168.0.50", "map": { "1": 25, "2": 26 } }]  (canal del receptor -> canal de la mesa)
+// shure.json: [{ "ip": "192.168.0.50", "map": { "1": 25, "2": [26, 60] } }]  (canal del receptor -> canal o canales de la mesa)
+// Un canal del receptor puede llegar a varios canales de la mesa (p. ej. uno para sala y otro para monitores):
+// se muestra y se cambia la misma ganancia en todos ellos.
+const toList = (v) => (Array.isArray(v) ? v : [v]).map(Number);
 let shureList = [];
 let receivers = [];
 const ext = {}; // índice de canal de la mesa -> { gain, online }
@@ -158,9 +161,9 @@ function sanitizeShure(list) {
     if (!net.isIPv4(ip)) return null;
     const map = {};
     for (const [rx, chan] of Object.entries(r.map || {})) {
-      const n = Number(chan);
-      if (!/^[1-8]$/.test(rx) || !Number.isInteger(n) || n < 1 || n > 288) continue;
-      map[rx] = n;
+      const chans = [...new Set(toList(typeof chan === 'string' ? chan.split(/[,\s]+/).filter(Boolean) : chan))].filter((n) => Number.isInteger(n) && n >= 1 && n <= 288).slice(0, 16);
+      if (!/^[1-8]$/.test(rx) || !chans.length) continue;
+      map[rx] = chans.length === 1 ? chans[0] : chans; // con un solo canal se guarda como número, igual que antes
     }
     const nic = typeof r.nic === 'string' && /^[A-Za-z0-9_.:-]{1,16}$/.test(r.nic) ? r.nic : '';
     if (Object.keys(map).length) out.push({ ip, map, ...(nic ? { nic } : {}) });
@@ -180,15 +183,15 @@ function startShure() {
   receivers.forEach((r) => r.stop());
   for (const k of Object.keys(ext)) delete ext[k];
   receivers = shureList.map((cfg) => {
-    const map = Object.fromEntries(Object.entries(cfg.map).map(([rx, chan]) => [rx, chan - 1]));
+    const map = Object.fromEntries(Object.entries(cfg.map).map(([rx, chan]) => [rx, toList(chan).map((c) => c - 1)]));
     const r = new ShureReceiver(cfg.ip, map, cfg.nic);
-    for (const i of Object.values(map)) ext[i] = { gain: null, online: false };
+    for (const i of Object.values(map).flat()) ext[i] = { gain: null, online: false };
     r.on('gain', ({ i, value }) => {
       ext[i] = { gain: value, online: true };
       broadcast({ type: 'param', g: 'ch', i, key: 'ext', value: ext[i] });
     });
     r.on('status', (online) => {
-      for (const i of Object.values(map)) {
+      for (const i of Object.values(map).flat()) {
         ext[i] = { ...ext[i], online };
         broadcast({ type: 'param', g: 'ch', i, key: 'ext', value: ext[i] });
       }
@@ -602,11 +605,15 @@ wss.on('connection', (ws, req) => {
       if (msg.g !== 'ch' || !Number.isInteger(i) || !Number.isFinite(msg.value)) return;
       // Solo en canales sin ganancia HA.
       if (state.control && state.control.ch[i] && state.control.ch[i].gain != null) return;
-      const r = receivers.find((x) => Object.values(x.map).includes(i));
+      const r = receivers.find((x) => Object.values(x.map).some((l) => l.includes(i)));
       const value = r && r.setGain(i, msg.value);
       if (value === undefined || !ext[i]) return;
-      ext[i] = { ...ext[i], gain: value };
-      broadcast({ type: 'param', g: 'ch', i, key: 'ext', value: ext[i] }, (other) => other !== ws);
+      // La misma entrada del receptor puede llegar a varios canales de la mesa: todos muestran el valor nuevo.
+      for (const j of r.linked(i)) {
+        if (!ext[j]) continue;
+        ext[j] = { ...ext[j], gain: value };
+        broadcast({ type: 'param', g: 'ch', i: j, key: 'ext', value: ext[j] }, j === i ? (other) => other !== ws : undefined);
+      }
       return;
     }
     if (msg.type === 'set' && driver && typeof driver.set === 'function' && state.control) {

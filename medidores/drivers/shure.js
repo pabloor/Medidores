@@ -12,7 +12,7 @@ const MIN = -18;
 const MAX = 42;
 
 class ShureReceiver extends EventEmitter {
-  // map: { canalDelReceptor: indiceDeCanalDeLaMesa (0 = canal 1)}
+  // map: { canalDelReceptor: [indices de canal de la mesa] (0 = canal 1) }; una entrada puede llegar a varios canales
   // nic: nombre del adaptador de red del ordenador por el que se conecta (p. ej. "en5"); vacío = lo decide el sistema.
   constructor(ip, map, nic) {
     super();
@@ -82,12 +82,18 @@ class ShureReceiver extends EventEmitter {
     const db = parseInt(value, 10) - 18;
     if (!Number.isFinite(db) || this.gain[ch] === db) return;
     this.gain[ch] = db;
-    this.emit('gain', { i: this.map[ch], value: db });
+    for (const i of this.map[ch]) this.emit('gain', { i, value: db });
+  }
+
+  // Todos los canales de la mesa que llegan de la misma entrada del receptor que este.
+  linked(consoleIndex) {
+    const ch = Object.keys(this.map).find((k) => this.map[k].includes(consoleIndex));
+    return ch == null ? [] : this.map[ch];
   }
 
   // Devuelve el valor ya recortado.
   setGain(consoleIndex, db) {
-    const ch = Object.keys(this.map).find((k) => this.map[k] === consoleIndex);
+    const ch = Object.keys(this.map).find((k) => this.map[k].includes(consoleIndex));
     if (ch == null || !this.online) return undefined;
     const v = Math.min(MAX, Math.max(MIN, Math.round(db)));
     this.send(`SET ${ch} AUDIO_GAIN ${v + 18}`);

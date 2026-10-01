@@ -546,12 +546,13 @@
     <div class="shure-form">
       <div class="ip"><span data-i18n="sh.ip"></span><input id="shIp" inputmode="decimal" placeholder="192.168.0.50" autocomplete="off"></div>
       <div class="ip"><span data-i18n="sh.nic"></span><select id="shNic"></select><small class="shure-hint" data-i18n="sh.nicHint"></small></div>
-      <div><span class="shch" data-n="1"></span><input id="shC1" inputmode="numeric" data-i18n-ph="sh.phMixer"></div>
-      <div><span class="shch" data-n="2"></span><input id="shC2" inputmode="numeric" data-i18n-ph="sh.phMixer"></div>
-      <div><span class="shch" data-n="3"></span><input id="shC3" inputmode="numeric" placeholder="—"></div>
-      <div><span class="shch" data-n="4"></span><input id="shC4" inputmode="numeric" placeholder="—"></div>
+      <div><span class="shch" data-n="1"></span><input id="shC1" inputmode="decimal" data-i18n-ph="sh.phMixer" autocomplete="off"></div>
+      <div><span class="shch" data-n="2"></span><input id="shC2" inputmode="decimal" data-i18n-ph="sh.phMixer" autocomplete="off"></div>
+      <div><span class="shch" data-n="3"></span><input id="shC3" inputmode="decimal" placeholder="—" autocomplete="off"></div>
+      <div><span class="shch" data-n="4"></span><input id="shC4" inputmode="decimal" placeholder="—" autocomplete="off"></div>
       <button id="shAdd" data-i18n="sh.add"></button>
     </div>
+    <p class="shure-hint" data-i18n="sh.multiHint"></p>
     <p class="error" id="shErr"></p>
   </div>
   <div class="actions">
@@ -1316,7 +1317,7 @@
     $('shureList').innerHTML = '';
     shureList.forEach((r, k) => {
       const li = document.createElement('li');
-      const maps = Object.entries(r.map).map(([rx, ch]) => `${rx}→${ch}`).join(', ');
+      const maps = Object.entries(r.map).map(([rx, ch]) => `${rx}→${[].concat(ch).join('+')}`).join(', ');
       const gone = r.nic && !nics.some((n) => n.name === r.nic);
       const nic = r.nic ? ` · ${esc(r.nic)}${gone ? ` (${esc(t('sh.nicGone'))})` : ''}` : '';
       li.innerHTML = `<i class="dot${shureOnline[k] ? ' on' : ''}"></i><span>${esc(r.ip)}${nic} · ${t('sh.channels')} ${esc(maps)}</span><button>${t('sh.remove')}</button>`;
@@ -1343,11 +1344,13 @@
     for (let k = 1; k <= 4; k++) {
       const v = $('shC' + k).value.trim();
       if (!v) continue;
-      const n = Number(v);
-      if (!Number.isInteger(n) || n < 1) { $('shErr').textContent = t('sh.errChannel', { v }); return; }
-      const d = ctrl && ctrl.ch[n - 1];
-      if (d && d.gain != null) { $('shErr').textContent = t('sh.errHasHa', { n }); return; }
-      map[k] = n;
+      // Uno o varios canales de la mesa para la misma entrada del receptor: "25" o "25, 60".
+      const nums = [...new Set(v.split(/[,\s]+/).filter(Boolean).map(Number))];
+      const bad = nums.find((n) => !Number.isInteger(n) || n < 1);
+      if (bad !== undefined || !nums.length) { $('shErr').textContent = t('sh.errChannel', { v }); return; }
+      const ha = nums.find((n) => { const d = ctrl && ctrl.ch[n - 1]; return d && d.gain != null; });
+      if (ha !== undefined) { $('shErr').textContent = t('sh.errHasHa', { n: ha }); return; }
+      map[k] = nums.length === 1 ? nums[0] : nums;
     }
     if (!Object.keys(map).length) { $('shErr').textContent = t('sh.errNone'); return; }
     const nic = $('shNic').value;

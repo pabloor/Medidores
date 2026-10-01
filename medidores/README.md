@@ -138,6 +138,8 @@ Notas:
 En los canales de la mesa que no tienen previo (por ejemplo, los que llegan por Dante desde un receptor inalámbrico), la app puede controlar la ganancia del propio receptor. Funciona con receptores Shure Axient Digital (AD4D, AD4Q), y el mismo comando existe en ULX-D, QLX-D y SLX-D.
 
 1. En la app: Ajustes → Receptores Shure. Escribe la IP del receptor e indica a qué canal de la mesa va cada canal del receptor (por ejemplo, 1 → 25 y 2 → 26). Pulsa **Añadir receptor**.
+   - Si una entrada del receptor llega a **varios canales de la mesa** (por ejemplo, uno para sala y otro para monitores), escríbelos separados por comas: `25, 60`. Todos muestran y cambian la misma ganancia.
+   - El selector **Adaptador de red** permite elegir por qué cable o wifi del ordenador se conecta con el receptor (útil con varios adaptadores, por ejemplo uno para Dante). Con «Automático» decide el sistema. Si el adaptador elegido no está disponible, el receptor queda sin conexión en lugar de usar otro camino.
 2. En esos canales, la ganancia aparece con la etiqueta **SHURE** y se ajusta con − y +, de −18 a +42 dB en pasos de 1 dB.
 
 Detalles:
