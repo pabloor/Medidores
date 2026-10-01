@@ -294,6 +294,7 @@
   .shure-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; font-size: 13px; color: var(--muted); }
   .shure-form input { width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: var(--stage); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; margin-top: 3px; }
   .shure-form .ip { grid-column: 1 / -1; }
+  .shure-form select { display: block; width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: var(--stage); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; margin-top: 3px; }
   .shure-form button { grid-column: 1 / -1; }
   .shure-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.35; }
   #settings select { font: inherit; font-size: 16px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
@@ -544,6 +545,7 @@
     <ul class="shure-list" id="shureList"></ul>
     <div class="shure-form">
       <div class="ip"><span data-i18n="sh.ip"></span><input id="shIp" inputmode="decimal" placeholder="192.168.0.50" autocomplete="off"></div>
+      <div class="ip"><span data-i18n="sh.nic"></span><select id="shNic"></select><small class="shure-hint" data-i18n="sh.nicHint"></small></div>
       <div><span class="shch" data-n="1"></span><input id="shC1" inputmode="numeric" data-i18n-ph="sh.phMixer"></div>
       <div><span class="shch" data-n="2"></span><input id="shC2" inputmode="numeric" data-i18n-ph="sh.phMixer"></div>
       <div><span class="shch" data-n="3"></span><input id="shC3" inputmode="numeric" placeholder="—"></div>
@@ -900,6 +902,7 @@
       else if (m.type === 'control') buildControl(m);
       else if (m.type === 'param') onParam(m);
       else if (m.type === 'shure') onShure(m);
+      else if (m.type === 'nics') onNics(m);
       else if (m.type === 'shure-error') $('shErr').textContent = m.key ? t(m.key, m.p) : m.error;
     };
     ws.onclose = () => {
@@ -1297,22 +1300,40 @@
   $('customDlg').addEventListener('close', applyLayer);
 
   // --- Receptores Shure
-  let extState = {}, shureList = [];
-  function onShure(m) {
-    extState = m.ext || {};
-    shureList = m.list || [];
-    $('shErr').textContent = '';
+  let extState = {}, shureList = [], nics = [];
+  // Adaptadores de red del Mac: "Automático" deja que decida el sistema; si no, el receptor se conecta por ese.
+  function fillNics() {
+    const sel = $('shNic'), keep = sel.value;
+    sel.innerHTML = `<option value="">${esc(t('sh.nicAuto'))}</option>` + nics.map((n) => `<option value="${esc(n.name)}">${esc(n.name)}${n.wifi ? ' · wifi' : ''} · ${esc(n.address)}</option>`).join('');
+    sel.value = nics.some((n) => n.name === keep) ? keep : '';
+  }
+  function onNics(m) { nics = m.list || []; fillNics(); renderShureList(); }
+  const askNics = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'nics' })); };
+  $('shNic').addEventListener('focus', askNics);
+  $('openSettings').addEventListener('click', askNics);
+  let shureOnline = [];
+  function renderShureList() {
     $('shureList').innerHTML = '';
     shureList.forEach((r, k) => {
       const li = document.createElement('li');
       const maps = Object.entries(r.map).map(([rx, ch]) => `${rx}→${ch}`).join(', ');
-      li.innerHTML = `<i class="dot${m.online[k] ? ' on' : ''}"></i><span>${esc(r.ip)} · ${t('sh.channels')} ${esc(maps)}</span><button>${t('sh.remove')}</button>`;
+      const gone = r.nic && !nics.some((n) => n.name === r.nic);
+      const nic = r.nic ? ` · ${esc(r.nic)}${gone ? ` (${esc(t('sh.nicGone'))})` : ''}` : '';
+      li.innerHTML = `<i class="dot${shureOnline[k] ? ' on' : ''}"></i><span>${esc(r.ip)}${nic} · ${t('sh.channels')} ${esc(maps)}</span><button>${t('sh.remove')}</button>`;
       li.querySelector('button').onclick = () => {
         if (!confirm(t('sh.confirmRemove', { ip: r.ip }))) return;
         ws.send(JSON.stringify({ type: 'shure-set', list: shureList.filter((_, j) => j !== k) }));
       };
       $('shureList').appendChild(li);
     });
+  }
+  function onShure(m) {
+    extState = m.ext || {};
+    shureList = m.list || [];
+    shureOnline = m.online || [];
+    if (m.nics) { nics = m.nics; fillNics(); }
+    $('shErr').textContent = '';
+    renderShureList();
     cstrips.forEach(renderStrip);
   }
   $('shAdd').onclick = () => {
@@ -1329,7 +1350,8 @@
       map[k] = n;
     }
     if (!Object.keys(map).length) { $('shErr').textContent = t('sh.errNone'); return; }
-    ws.send(JSON.stringify({ type: 'shure-set', list: [...shureList.filter((r) => r.ip !== ip), { ip, map }] }));
+    const nic = $('shNic').value;
+    ws.send(JSON.stringify({ type: 'shure-set', list: [...shureList.filter((r) => r.ip !== ip), { ip, map, ...(nic ? { nic } : {}) }] }));
     ['shIp', 'shC1', 'shC2', 'shC3', 'shC4'].forEach((id) => { $(id).value = ''; });
   };
 

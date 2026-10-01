@@ -4,6 +4,7 @@
 //   Cambiar:   < SET 1 AUDIO_GAIN 30 >        valor = ganancia en dB + 18  (0..60 = -18..+42 dB)
 //   Respuesta: < REP 1 AUDIO_GAIN 030 >       también llega cuando se cambia en el receptor o en Wireless Workbench
 const net = require('net');
+const os = require('os');
 const EventEmitter = require('events');
 
 const PORT = 2202;
@@ -11,10 +12,12 @@ const MIN = -18;
 const MAX = 42;
 
 class ShureReceiver extends EventEmitter {
-  // map: { canalDelReceptor: indiceDeCanalDeLaMesa (0 = canal 1) }
-  constructor(ip, map) {
+  // map: { canalDelReceptor: indiceDeCanalDeLaMesa (0 = canal 1)}
+  // nic: nombre del adaptador de red del ordenador por el que se conecta (p. ej. "en5"); vacío = lo decide el sistema.
+  constructor(ip, map, nic) {
     super();
     this.ip = ip;
+    this.nic = nic || '';
     this.map = map;
     this.gain = {};
     this.online = false;
@@ -29,7 +32,15 @@ class ShureReceiver extends EventEmitter {
 
   connect() {
     if (this.stopped) return;
-    const sock = (this.sock = net.connect(PORT, this.ip));
+    let localAddress;
+    if (this.nic) {
+      // Se conecta desde la dirección de ese adaptador. Si no está disponible (cable desenchufado), no se
+      // conecta por otro camino: se queda sin conexión y reintenta.
+      const a = (os.networkInterfaces()[this.nic] || []).find((x) => (x.family === 'IPv4' || x.family === 4) && !x.internal);
+      if (!a) { this.setOnline(false); this.retry = setTimeout(() => this.connect(), 3000); return; }
+      localAddress = a.address;
+    }
+    const sock = (this.sock = net.connect({ port: PORT, host: this.ip, ...(localAddress ? { localAddress } : {}) }));
     sock.setEncoding('ascii');
     sock.setTimeout(25000);
     let buf = '';

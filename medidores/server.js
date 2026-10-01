@@ -137,6 +137,19 @@ let receivers = [];
 const ext = {}; // índice de canal de la mesa -> { gain, online }
 try { shureList = JSON.parse(fs.readFileSync(SHURE_FILE, 'utf8')); } catch {}
 
+// Adaptadores de red de este ordenador (IPv4), para elegir por cuál se conecta un receptor.
+// A diferencia de la lista del QR, incluye las direcciones 169.254.x.x (las que usa Dante) y las virtuales no.
+function nicList() {
+  const out = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    if (/^(utun|bridge|vmnet|vboxnet|docker|veth|llw|awdl|ppp|tun|tap|zt|anpi)/i.test(name)) continue;
+    const a = (list || []).find((x) => (x.family === 'IPv4' || x.family === 4) && !x.internal);
+    if (a) out.push({ name, address: a.address, wifi: wifiIfaces.has(name) });
+  }
+  return out.sort((x, y) => x.name.localeCompare(y.name, 'en', { numeric: true }));
+}
+const nicsMsg = () => ({ type: 'nics', list: nicList() });
+
 function sanitizeShure(list) {
   if (!Array.isArray(list)) return null;
   const out = [];
@@ -149,7 +162,8 @@ function sanitizeShure(list) {
       if (!/^[1-8]$/.test(rx) || !Number.isInteger(n) || n < 1 || n > 288) continue;
       map[rx] = n;
     }
-    if (Object.keys(map).length) out.push({ ip, map });
+    const nic = typeof r.nic === 'string' && /^[A-Za-z0-9_.:-]{1,16}$/.test(r.nic) ? r.nic : '';
+    if (Object.keys(map).length) out.push({ ip, map, ...(nic ? { nic } : {}) });
   }
   return out;
 }
@@ -158,6 +172,7 @@ const shureMsg = () => ({
   type: 'shure',
   list: shureList,
   online: receivers.map((r) => r.online),
+  nics: nicList(),
   ext: Object.fromEntries(Object.entries(ext).map(([i, e]) => [i, e])),
 });
 
@@ -166,7 +181,7 @@ function startShure() {
   for (const k of Object.keys(ext)) delete ext[k];
   receivers = shureList.map((cfg) => {
     const map = Object.fromEntries(Object.entries(cfg.map).map(([rx, chan]) => [rx, chan - 1]));
-    const r = new ShureReceiver(cfg.ip, map);
+    const r = new ShureReceiver(cfg.ip, map, cfg.nic);
     for (const i of Object.values(map)) ext[i] = { gain: null, online: false };
     r.on('gain', ({ i, value }) => {
       ext[i] = { gain: value, online: true };
@@ -541,6 +556,7 @@ wss.on('connection', (ws, req) => {
     let msg;
     try { msg = JSON.parse(m); } catch { return; }
     if (msg.type === 'raw') ws.wantsRaw = !!msg.on;
+    if (msg.type === 'nics') return ws.send(JSON.stringify(nicsMsg()));
     if (ROLE === 'sala' && handleShared(ws, msg)) return;
     // Quien no tiene la clave solo puede medir: nada de lo que modifica la mesa o los ajustes compartidos.
     if (!ws.canControl && CONTROL_ONLY.has(msg.type)) return;
