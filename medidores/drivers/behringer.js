@@ -6,6 +6,7 @@ const dgram = require('dgram');
 const os = require('os');
 const EventEmitter = require('events');
 const osc = require('./osc');
+const { X32Control } = require('./x32control');
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const lr = (i) => (i === 1 ? 'L' : 'R');
@@ -14,6 +15,7 @@ const PROFILES = {
   x32: {
     port: 10023,
     label: 'X32 / M32',
+    control: true,                       // fader, ON y ganancia (ver x32control.js)
     meters: ['/meters/1', '/meters/2'], // 1: 32 canales + reducciones de ganancia; 2: buses, matrices, main
     decode: 'float',                     // float32 lineal, 1.0 = 0 dBFS
     groups: [
@@ -118,6 +120,7 @@ class Behringer extends EventEmitter {
     askNames();
     if (!info) this.send('/xinfo', [], this.profile.port, ip);
     this.timers.push(setInterval(subscribe, 8000), setInterval(askNames, 15000));
+    if (this.profile.control) { this.control = new X32Control(this); this.control.start(); }
     this.timers.push(setInterval(() => this.checkAlive(), 1000));
   }
 
@@ -152,6 +155,8 @@ class Behringer extends EventEmitter {
       return;
     }
     if (!this.profile || rinfo.address !== this.ip) return;
+
+    if (this.control && this.control.onMessage(m)) return;
 
     const idx = this.profile.meters.indexOf(m.address);
     if (idx >= 0 && Buffer.isBuffer(m.args[0])) return this.onMeters(idx, m.args[0]);
@@ -205,7 +210,13 @@ class Behringer extends EventEmitter {
     });
   }
 
+  // Control desde la app (solo X32 / M32). Devuelve el valor ya ajustado, o undefined si no se puede.
+  set(g, i, key, value) {
+    return this.control ? this.control.set(g, i, key, value) : undefined;
+  }
+
   stop() {
+    if (this.control) this.control.stop();
     clearInterval(this.discoverTimer);
     this.timers.forEach(clearInterval);
     try { this.sock.close(); } catch {}

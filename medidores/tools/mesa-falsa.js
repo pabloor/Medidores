@@ -20,9 +20,46 @@ function blob(path, t) {
   return b;
 }
 
+// Control (solo X32): estado de fader, ON, previos y links, como una X32 real.
+// Los cambios se envían a quien haya mandado /xremote en los últimos 10 s (menos a quien los hizo).
+const state = new Map();                 // dirección -> valor ({ f: número } si va como float)
+const remotes = new Map();               // "ip:puerto" -> caduca
+const fl = (v) => ({ f: v });
+function defaultValue(addr) {
+  let m;
+  if (/\/mix\/fader$/.test(addr)) return fl(0.75);
+  if (/\/mix\/on$/.test(addr)) return 1;
+  if ((m = /^\/ch\/(\d\d)\/config\/insrc$/.exec(addr))) return Number(m[1]);
+  if ((m = /^\/config\/routing\/IN\/(\d+)-/.exec(addr))) return (Number(m[1]) - 1) / 8;
+  if ((m = /^\/headamp\/(\d{3})\/gain$/.exec(addr))) return fl((20 + (Number(m[1]) % 10) + 12) / 72);
+  if ((m = /^\/config\/(ch|bus|mtx)link\/(\d+)-/.exec(addr))) return m[1] === 'ch' && m[2] === '1' ? 1 : 0; // canales 1-2 enlazados
+}
+const argOf = (v) => (v && typeof v === 'object' ? osc.float(v.f) : v);
+const notify = (addr, v, exceptKey) => {
+  for (const [key, until] of remotes) {
+    if (Date.now() > until) { remotes.delete(key); continue; }
+    if (key === exceptKey) continue;
+    const [ip, port] = key.split(':');
+    sock.send(osc.encode(addr, [argOf(v)]), Number(port), ip);
+  }
+};
+
 sock.on('message', (buf, r) => {
   const m = osc.decode(buf);
   const reply = (addr, args) => sock.send(osc.encode(addr, args), r.port, r.address);
+  if (!xair && m.address === '/xremote') { remotes.set(`${r.address}:${r.port}`, Date.now() + 10000); return; }
+  if (!xair && /^\/(ch|bus|mtx|main|headamp|config)\//.test(m.address) && !m.address.endsWith('/config/name')) {
+    if (m.args.length === 0) {
+      const v = state.has(m.address) ? state.get(m.address) : defaultValue(m.address);
+      if (v !== undefined) reply(m.address, [argOf(v)]);
+    } else {
+      const v = typeof m.args[0] === 'number' && m.address.match(/(fader|gain)$/) ? fl(m.args[0]) : m.args[0];
+      state.set(m.address, v);
+      console.log(`[set] ${m.address} = ${typeof v === 'object' ? v.f.toFixed(4) : v}`);
+      notify(m.address, v, `${r.address}:${r.port}`);
+    }
+    return;
+  }
   if (m.address === '/xinfo') reply('/xinfo', ['127.0.0.1', xair ? 'XR18-Prueba' : 'X32-Prueba', xair ? 'XR18' : 'X32', '4.06']);
   else if (m.address === '/meters') subs.set(`${r.address}:${r.port}|${m.args[0]}`, Date.now() + 10000);
   else if (m.address.endsWith('/config/name')) reply(m.address, [m.address.includes('/ch/') ? `Fuente ${m.address.match(/\d+/)[0]}` : '']);
@@ -44,5 +81,13 @@ function buildBlobMsg(path, data) {
   return Buffer.concat([head, len, pad(data)]);
 }
 function pad(b) { return Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4)]); }
+
+// Cada 7 s "alguien" mueve en la mesa el fader del canal 1, para probar que la app se entera.
+if (!xair) setInterval(() => {
+  const cur = state.get('/ch/01/mix/fader');
+  const v = fl(cur && cur.f === 0.5 ? 0.75 : 0.5);
+  state.set('/ch/01/mix/fader', v);
+  notify('/ch/01/mix/fader', v, null);
+}, 7000);
 
 sock.bind(PORT, () => console.log(`Mesa falsa ${xair ? 'XR18' : 'X32'} escuchando en UDP ${PORT}`));

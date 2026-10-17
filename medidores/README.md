@@ -2,7 +2,7 @@
 
 *Español · [English](README.en.md)*
 
-Muestra en tiempo real los medidores de una mesa de mezclas digital en cualquier móvil conectado a la misma wifi. Con mesas Yamaha también permite controlar faders, ON de canal y ganancia del previo.
+Muestra en tiempo real los medidores de una mesa de mezclas digital en cualquier móvil conectado a la misma wifi. Con mesas Yamaha y con las Midas M32 / Behringer X32 también permite controlar faders, ON de canal y ganancia del previo.
 
 ## Cómo funciona
 
@@ -93,7 +93,13 @@ La IP de la mesa aparece en su pantalla de configuración de red. El driver preg
 - **CL/QL y Rivage PM:** según la documentación de la comunidad, solo hay medidores de Mix y Matrix por este protocolo. El driver intenta pedir también los canales y, si la mesa los rechaza, los oculta.
 - La DM7 usa una escala de medidores distinta. La tabla de conversión (`drivers/yamaha-dm7-meter.json`) procede del módulo yamaha-rcp de Bitfocus Companion, con licencia MIT.
 
-### Control de la mesa (solo Yamaha)
+### Control de la mesa (Yamaha y Midas M32 / Behringer X32)
+
+**Midas M32 y Behringer X32:** fader, ON y ganancia del previo de los 32 canales, los 16 buses, las 6 matrices y el Main (Stereo). La app lee el estado de la mesa al conectar y se entera de los cambios que se hacen en ella; los canales enlazados como pareja estéreo se mueven juntos. La ganancia es la del previo (de −12 a +60 dB, en pasos de 1 dB) que usa cada canal según su fuente y el enrutado de entradas; en los canales cuya fuente no tiene previo en la mesa (USB, tarjeta) no aparece. Las MR12 / MR18 (X-Air) siguen siendo solo de medición.
+
+Los mapas de direcciones vienen de la documentación no oficial del protocolo, y no se han podido probar con una consola real. **Antes de usarlo en un directo**, con el sistema bajado: compara la ganancia que muestra la app con la de la mesa en varios canales (si no coinciden, el mapa de previos no es el de tu mesa: no muevas la ganancia); mueve un fader y un ON y comprueba que cambian en la mesa; y mueve uno en la mesa y comprueba que cambia en la app.
+
+**Yamaha:**
 
 Con una Yamaha conectada aparece arriba el selector **Medidores / Control**. En Control, cada canal tiene su medidor, la ganancia del previo, el botón ON y el fader hacia el Stereo, con una escala en dB junto al fader (de +10 a −∞, con el 0 destacado) y su valor exacto debajo. Si el fader es bajo, la escala muestra solo las marcas que caben. A la derecha quedan fijos los faders del Stereo: A y B en la DM7, uno solo en las demás.
 

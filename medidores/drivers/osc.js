@@ -6,11 +6,15 @@ function encStr(s) {
   return Buffer.concat([raw, Buffer.alloc(align4(raw.length) - raw.length)]);
 }
 
+// Un número que debe ir como float aunque sea entero (p. ej. un fader a 0 o a 1): osc.float(1).
+const float = (v) => ({ osc: 'f', v });
+
 function encode(address, args = []) {
   let tags = ',';
   const parts = [];
   for (const a of args) {
-    if (typeof a === 'string') { tags += 's'; parts.push(encStr(a)); }
+    if (a && typeof a === 'object' && a.osc === 'f') { tags += 'f'; const b = Buffer.alloc(4); b.writeFloatBE(a.v); parts.push(b); }
+    else if (typeof a === 'string') { tags += 's'; parts.push(encStr(a)); }
     else if (Number.isInteger(a)) { tags += 'i'; const b = Buffer.alloc(4); b.writeInt32BE(a); parts.push(b); }
     else { tags += 'f'; const b = Buffer.alloc(4); b.writeFloatBE(a); parts.push(b); }
   }
@@ -41,4 +45,4 @@ function decode(buf) {
   return { address, args };
 }
 
-module.exports = { encode, decode };
+module.exports = { encode, decode, float };
