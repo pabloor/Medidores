@@ -29,8 +29,9 @@ function defaultValue(addr) {
   let m;
   if (/\/mix\/fader$/.test(addr)) return fl(0.75);
   if (/\/mix\/on$/.test(addr)) return 1;
-  if ((m = /^\/ch\/(\d\d)\/config\/insrc$/.exec(addr))) return Number(m[1]);
-  if ((m = /^\/config\/routing\/IN\/(\d+)-/.exec(addr))) return (Number(m[1]) - 1) / 8;
+  if ((m = /^\/ch\/(\d\d)\/config\/source$/.exec(addr))) return Number(m[1]);
+  // ROUTE0=4: el bloque de entradas 1-8 llega por AES50-A (A1-8), como con una caja de escenario
+  if ((m = /^\/config\/routing\/IN\/(\d+)-/.exec(addr))) return m[1] === '1' && process.env.ROUTE0 ? Number(process.env.ROUTE0) : (Number(m[1]) - 1) / 8;
   if ((m = /^\/headamp\/(\d{3})\/gain$/.exec(addr))) return fl((20 + (Number(m[1]) % 10) + 12) / 72);
   if ((m = /^\/config\/(ch|bus|mtx)link\/(\d+)-/.exec(addr))) return m[1] === 'ch' && m[2] === '1' ? 1 : 0; // canales 1-2 enlazados
 }

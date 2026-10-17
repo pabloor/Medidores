@@ -24,7 +24,7 @@ const LINK_PATH = { ch: (k) => `/config/chlink/${2 * k + 1}-${2 * k + 2}`, bus: 
 const ROUTE_PATH = (b) => `/config/routing/IN/${8 * b + 1}-${8 * b + 8}`;
 
 // Previo (headamp 0..127) al que llega cada fuente del canal. Locales 0..31, AES50-A 32..79, AES50-B 80..127.
-// La fuente del canal (insrc, 0..64) es: 0 OFF, 1-32 entradas In01-32, 33-38 Aux, 39-40 USB, 41-48 efectos, 49-64 buses.
+// La fuente del canal (/ch/NN/config/source, 0..64) es: 0 OFF, 1-32 entradas In01-32, 33-38 Aux, 39-40 USB, 41-48 efectos, 49-64 buses.
 // Solo las entradas In01-32 tienen previo; a qué previo físico llegan (local, AES50-A o B) lo decide el enrutado de entradas.
 function headampOf(src, route) {
   if (src >= 1 && src <= 32) {
@@ -48,7 +48,7 @@ class X32Control {
     this.hamp = {};                        // headamp -> dB
     this.hampOf = Array(32).fill(null);    // headamp de cada canal
     this.ready = false;
-    this.rx = { fader: 0, on: 0, insrc: 0, route: 0, headamp: 0, link: 0 }; // respuestas recibidas
+    this.rx = { fader: 0, on: 0, source: 0, route: 0, headamp: 0, link: 0 }; // respuestas recibidas
     this.raw = {};                                                       // últimas respuestas de las lecturas de ganancia
     this.queue = [];
     this.pend = new Map();
@@ -66,7 +66,7 @@ class X32Control {
     for (const [g, def] of Object.entries(GROUPS)) {
       for (let i = 0; i < def.n; i++) { this.ask(`${def.path(i)}/mix/fader`); this.ask(`${def.path(i)}/mix/on`); }
     }
-    for (let i = 0; i < 32; i++) this.ask(`${GROUPS.ch.path(i)}/config/insrc`);
+    for (let i = 0; i < 32; i++) this.ask(`${GROUPS.ch.path(i)}/config/source`);
     for (const g of ['ch', 'bus', 'mtx']) for (let k = 0; k < GROUPS[g].n / 2; k++) this.ask(LINK_PATH[g](k));
     // Si la mesa no ha contestado a todo, se publica lo que haya: lo demás llega después como cambios sueltos.
     this.timers.push(setTimeout(() => this.publish(), 2500));
@@ -121,7 +121,7 @@ class X32Control {
 
   // Las lecturas se pierden a veces (UDP): se repiten las que aún no han recibido respuesta.
   retryMissing() {
-    for (let i = 0; i < 32; i++) if (this.src[i] == null) this.ask(`${GROUPS.ch.path(i)}/config/insrc`);
+    for (let i = 0; i < 32; i++) if (this.src[i] == null) this.ask(`${GROUPS.ch.path(i)}/config/source`);
     for (let b = 0; b < 4; b++) if (this.route[b] == null) this.ask(ROUTE_PATH(b));
     for (const [h, v] of Object.entries(this.hamp)) if (v == null) this.ask(`/headamp/${pad3(Number(h))}/gain`);
   }
@@ -129,7 +129,7 @@ class X32Control {
   // Texto para ver qué contesta la mesa (se abre desde la app en /diagnostico).
   diagnostics() {
     const L = [];
-    L.push(`Respuestas recibidas de la mesa: fader ${this.rx.fader}, on ${this.rx.on}, fuente ${this.rx.insrc}, enrutado ${this.rx.route}, previo ${this.rx.headamp}`);
+    L.push(`Respuestas recibidas de la mesa: fader ${this.rx.fader}, on ${this.rx.on}, fuente ${this.rx.source}, enrutado ${this.rx.route}, previo ${this.rx.headamp}`);
     L.push(`Estado publicado: ${this.ready ? 'sí' : 'no'}`);
     L.push(`Enrutado de entradas (bloques 1-8, 9-16, 17-24, 25-32): ${JSON.stringify(this.route)}`);
     L.push('');
@@ -152,8 +152,8 @@ class X32Control {
       this.setVal(g, i, key, key === 'fader' ? toDbOut(v) : v === 1);
       return true;
     }
-    if ((r = /^\/ch\/(\d\d)\/config\/insrc$/.exec(m.address))) {
-      this.rx.insrc++; this.keep(m);
+    if ((r = /^\/ch\/(\d\d)\/config\/source$/.exec(m.address))) {
+      this.rx.source++; this.keep(m);
       this.src[Number(r[1]) - 1] = v; this.refreshHamp(); return true;
     }
     if ((r = /^\/config\/routing\/IN\/(\d+)-\d+$/.exec(m.address))) {
