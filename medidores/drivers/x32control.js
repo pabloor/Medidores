@@ -15,9 +15,10 @@ const dbToFader = (db) => (db <= -90 ? 0 : db >= 10 ? 1 : db >= -10 ? (db + 30) 
 const quant = (f) => Math.round(f * 1023) / 1023;               // el fader de la X32 tiene 1024 pasos
 const toDbOut = (f) => (f <= 0 ? -Infinity : Math.round(faderToDb(f) * 10) / 10);
 
-const GAIN_MIN = -12, GAIN_MAX = 60;
+const GAIN_MIN = -12, GAIN_MAX = 60, GAIN_STEP = 0.5; // el previo de la X32/M32 va de 0,5 en 0,5 dB
 const gainToF = (db) => (db - GAIN_MIN) / (GAIN_MAX - GAIN_MIN);
-const fToGain = (f) => Math.round(GAIN_MIN + f * (GAIN_MAX - GAIN_MIN));
+const toStep = (db) => Math.round(db / GAIN_STEP) * GAIN_STEP;
+const fToGain = (f) => toStep(GAIN_MIN + f * (GAIN_MAX - GAIN_MIN));
 
 const GROUPS = { ch: { n: 32, path: (i) => `/ch/${pad2(i + 1)}` }, bus: { n: 16, path: (i) => `/bus/${pad2(i + 1)}` }, mtx: { n: 6, path: (i) => `/mtx/${pad2(i + 1)}` }, main: { n: 1, path: () => '/main/st' } };
 const LINK_PATH = { ch: (k) => `/config/chlink/${2 * k + 1}-${2 * k + 2}`, bus: (k) => `/config/buslink/${2 * k + 1}-${2 * k + 2}`, mtx: (k) => `/config/mtxlink/${2 * k + 1}-${2 * k + 2}` };
@@ -84,7 +85,7 @@ class X32Control {
   encode() {
     const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: c.stereo, pair: c.pair }));
     return {
-      caps: { gain: { min: GAIN_MIN, max: GAIN_MAX, step: 1 }, faderMax: 10, mainNames: ['Stereo'] },
+      caps: { gain: { min: GAIN_MIN, max: GAIN_MAX, step: GAIN_STEP }, faderMax: 10, mainNames: ['Stereo'] },
       ch: map(this.cs.ch), main: map(this.cs.main), bus: map(this.cs.bus), mtx: map(this.cs.mtx),
     };
   }
@@ -199,7 +200,7 @@ class X32Control {
     if (key === 'gain' && g === 'ch') {
       const h = this.hampOf[i];
       if (h == null || c.gain == null) return undefined;
-      const db = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(value)));
+      const db = Math.min(GAIN_MAX, Math.max(GAIN_MIN, toStep(Number(value))));
       this.queueSet(`/headamp/${pad3(h)}/gain`, osc.float(gainToF(db)));
       this.hamp[h] = db;
       // Los canales que comparten ese previo muestran el mismo valor.
