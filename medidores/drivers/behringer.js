@@ -210,6 +210,10 @@ class Behringer extends EventEmitter {
     });
   }
 
+  diagnostics() {
+    return this.control ? this.control.diagnostics() : 'Esta mesa no tiene control: no hay nada que diagnosticar.';
+  }
+
   // Control desde la app (solo X32 / M32). Devuelve el valor ya ajustado, o undefined si no se puede.
   set(g, i, key, value) {
     return this.control ? this.control.set(g, i, key, value) : undefined;

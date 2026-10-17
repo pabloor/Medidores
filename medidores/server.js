@@ -354,6 +354,11 @@ const server = http.createServer((req, res) => {
     });
     return res.end('\ufeff' + csv(rows)); // BOM: para que Excel/Numbers lean bien los acentos
   }
+  if (p === '/diagnostico') {
+    if (!isLoopback(req.socket)) { res.writeHead(403); return res.end(); }
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(driver && typeof driver.diagnostics === 'function' ? driver.diagnostics() : 'La mesa conectada no ofrece diagnóstico.');
+  }
   if (p === '/qr.svg') {
     const i = Number(new URL(req.url, 'http://x').searchParams.get('i')) || 0;
     const urls = lanUrls();

@@ -46,7 +46,9 @@ const notify = (addr, v, exceptKey) => {
 
 sock.on('message', (buf, r) => {
   const m = osc.decode(buf);
-  const reply = (addr, args) => sock.send(osc.encode(addr, args), r.port, r.address);
+  // DROP=0.5 node tools/mesa-falsa.js : pierde esa fracción de las respuestas, como una red wifi saturada (para probar los reintentos)
+  const drop = Number(process.env.DROP || 0);
+  const reply = (addr, args) => { if (drop && Math.random() < drop) return; sock.send(osc.encode(addr, args), r.port, r.address); };
   if (!xair && m.address === '/xremote') { remotes.set(`${r.address}:${r.port}`, Date.now() + 10000); return; }
   if (!xair && /^\/(ch|bus|mtx|main|headamp|config)\//.test(m.address) && !m.address.endsWith('/config/name')) {
     if (m.args.length === 0) {

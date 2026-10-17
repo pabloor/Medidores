@@ -24,6 +24,8 @@ const LINK_PATH = { ch: (k) => `/config/chlink/${2 * k + 1}-${2 * k + 2}`, bus: 
 const ROUTE_PATH = (b) => `/config/routing/IN/${8 * b + 1}-${8 * b + 8}`;
 
 // Previo (headamp 0..127) al que llega cada fuente del canal. Locales 0..31, AES50-A 32..79, AES50-B 80..127.
+// La fuente del canal (insrc, 0..64) es: 0 OFF, 1-32 entradas In01-32, 33-38 Aux, 39-40 USB, 41-48 efectos, 49-64 buses.
+// Solo las entradas In01-32 tienen previo; a qué previo físico llegan (local, AES50-A o B) lo decide el enrutado de entradas.
 function headampOf(src, route) {
   if (src >= 1 && src <= 32) {
     const b = Math.floor((src - 1) / 8), k = (src - 1) % 8;
@@ -33,8 +35,6 @@ function headampOf(src, route) {
     if (e >= 10 && e <= 15) return 80 + (e - 10) * 8 + k; // B1-8 … B41-48
     return null;                                           // tarjeta, USB…: sin previo en la mesa
   }
-  if (src >= 41 && src <= 88) return 32 + (src - 41);      // A1…A48 directos
-  if (src >= 89 && src <= 136) return 80 + (src - 89);     // B1…B48 directos
   return null;
 }
 
@@ -48,6 +48,8 @@ class X32Control {
     this.hamp = {};                        // headamp -> dB
     this.hampOf = Array(32).fill(null);    // headamp de cada canal
     this.ready = false;
+    this.rx = { fader: 0, on: 0, insrc: 0, route: 0, headamp: 0, link: 0 }; // respuestas recibidas
+    this.raw = {};                                                       // últimas respuestas de las lecturas de ganancia
     this.queue = [];
     this.pend = new Map();
     this.timers = [];
@@ -68,6 +70,7 @@ class X32Control {
     for (const g of ['ch', 'bus', 'mtx']) for (let k = 0; k < GROUPS[g].n / 2; k++) this.ask(LINK_PATH[g](k));
     // Si la mesa no ha contestado a todo, se publica lo que haya: lo demás llega después como cambios sueltos.
     this.timers.push(setTimeout(() => this.publish(), 2500));
+    this.timers.push(setInterval(() => this.retryMissing(), 4000));
     // Relectura completa de faders y ON: recupera paquetes perdidos.
     this.timers.push(setInterval(() => {
       for (const def of Object.values(GROUPS)) for (let i = 0; i < def.n; i++) { this.ask(`${def.path(i)}/mix/fader`); this.ask(`${def.path(i)}/mix/on`); }
@@ -114,6 +117,30 @@ class X32Control {
     });
   }
 
+  keep(m) { if (Object.keys(this.raw).length < 60) this.raw[m.address] = JSON.stringify(m.args); }
+
+  // Las lecturas se pierden a veces (UDP): se repiten las que aún no han recibido respuesta.
+  retryMissing() {
+    for (let i = 0; i < 32; i++) if (this.src[i] == null) this.ask(`${GROUPS.ch.path(i)}/config/insrc`);
+    for (let b = 0; b < 4; b++) if (this.route[b] == null) this.ask(ROUTE_PATH(b));
+    for (const [h, v] of Object.entries(this.hamp)) if (v == null) this.ask(`/headamp/${pad3(Number(h))}/gain`);
+  }
+
+  // Texto para ver qué contesta la mesa (se abre desde la app en /diagnostico).
+  diagnostics() {
+    const L = [];
+    L.push(`Respuestas recibidas de la mesa: fader ${this.rx.fader}, on ${this.rx.on}, fuente ${this.rx.insrc}, enrutado ${this.rx.route}, previo ${this.rx.headamp}`);
+    L.push(`Estado publicado: ${this.ready ? 'sí' : 'no'}`);
+    L.push(`Enrutado de entradas (bloques 1-8, 9-16, 17-24, 25-32): ${JSON.stringify(this.route)}`);
+    L.push('');
+    L.push('Canal | fuente | previo | ganancia (dB)');
+    for (let i = 0; i < 32; i++) L.push(`${String(i + 1).padStart(5)} | ${String(this.src[i] ?? '?').padStart(6)} | ${String(this.hampOf[i] ?? '-').padStart(6)} | ${this.cs.ch[i].gain ?? '-'}`);
+    L.push('');
+    L.push('Valores en bruto recibidos (dirección -> argumentos):');
+    for (const [a, v] of Object.entries(this.raw)) L.push(`  ${a} -> ${v}`);
+    return L.join('\n');
+  }
+
   // Mensaje de la mesa. Devuelve true si era de control.
   onMessage(m) {
     const v = m.args[0];
@@ -121,16 +148,20 @@ class X32Control {
     if ((r = /^\/(ch|bus|mtx)\/(\d\d)\/mix\/(fader|on)$/.exec(m.address)) || (r = /^\/(main)\/st\/mix\/(fader|on)$/.exec(m.address))) {
       const g = r[1], i = g === 'main' ? 0 : Number(r[2]) - 1, key = r[r.length - 1];
       if (!this.cs[g] || !this.cs[g][i] || typeof v !== 'number') return true;
+      this.rx[key]++;
       this.setVal(g, i, key, key === 'fader' ? toDbOut(v) : v === 1);
       return true;
     }
     if ((r = /^\/ch\/(\d\d)\/config\/insrc$/.exec(m.address))) {
+      this.rx.insrc++; this.keep(m);
       this.src[Number(r[1]) - 1] = v; this.refreshHamp(); return true;
     }
     if ((r = /^\/config\/routing\/IN\/(\d+)-\d+$/.exec(m.address))) {
+      this.rx.route++; this.keep(m);
       this.route[(Number(r[1]) - 1) / 8] = v; this.refreshHamp(); return true;
     }
     if ((r = /^\/headamp\/(\d{3})\/gain$/.exec(m.address))) {
+      this.rx.headamp++; this.keep(m);
       const h = Number(r[1]);
       if (typeof v === 'number') { this.hamp[h] = fToGain(v); this.refreshHamp(); }
       return true;
