@@ -1,5 +1,5 @@
 #!/bin/bash
-# Construye Medidores.app para Apple Silicon (arm64) e Intel (x64) y deja un ZIP de cada una en dist/.
+# Construye Medidores.app para Apple Silicon (arm64) e Intel (x64) y la versión portable de Windows (x64); deja un ZIP de cada una en dist/.
 # Se puede ejecutar en Linux o macOS. Necesita Node.js y conexión a internet (descarga Electron).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,6 +27,7 @@ done
 echo "==> Icono"
 ICON_DIR="$ROOT/build/icon"; mkdir -p "$ICON_DIR"
 node app/make-icon-pngs.js medidores/public/icon.svg "$ICON_DIR"
+cp "$ICON_DIR/512.png" "$STAGE/icon.png"   # icono de la ventana en Windows
 node app/make-icns.js "$ROOT/build/icon.icns" "$ICON_DIR"/128.png "$ICON_DIR"/256.png "$ICON_DIR"/512.png "$ICON_DIR"/1024.png
 
 [ -d node_modules/@electron/packager ] || npm install --no-audit --no-fund >/dev/null
@@ -47,4 +48,15 @@ for ARCH in arm64 x64; do
   chmod +x "$PKG/Instalar Medidores.command"
   (cd "$ROOT/build/pkg-$ARCH" && zip -qry "$DIST/Medidores-$NAME.zip" Medidores)
 done
+# Windows x64: carpeta portable (se descomprime y se abre Medidores.exe). El icono del .exe no se puede fijar desde Linux (haría falta Wine).
+echo "==> Empaquetando Windows x64"
+Z="$ROOT/build/zips/electron-v$EV-win32-x64.zip"
+[ -s "$Z" ] || curl -fsSL --retry 3 -o "$Z" "https://github.com/electron/electron/releases/download/v$EV/electron-v$EV-win32-x64.zip"
+npx electron-packager "$STAGE" Medidores --platform=win32 --arch=x64 --out="$ROOT/build/out" --overwrite --electron-zip-dir="$ROOT/build/zips" \
+  --no-asar --app-version="$VERSION" >/dev/null
+PKGW="$ROOT/build/pkg-win/Medidores"
+rm -rf "$ROOT/build/pkg-win"; mkdir -p "$PKGW"
+cp -a "$ROOT/build/out/Medidores-win32-x64/." "$PKGW/"
+sed 's/$/\r/' app/LEEME-Windows.txt > "$PKGW/LEEME.txt"   # saltos de línea de Windows (Bloc de notas)
+(cd "$ROOT/build/pkg-win" && zip -qry "$DIST/Medidores-Windows-x64.zip" Medidores)
 ls -lh "$DIST"

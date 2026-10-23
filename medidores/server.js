@@ -94,7 +94,7 @@ function lanAddresses() {
   for (const [name, list] of Object.entries(os.networkInterfaces())) {
     for (const a of list || []) {
       if (!(a.family === 'IPv4' || a.family === 4) || a.internal || a.address.startsWith('169.254.')) continue;
-      const virtual = /^(utun|bridge|vmnet|vboxnet|docker|veth|llw|awdl|ppp|tun|tap|zt|anpi)/i.test(name);
+      const virtual = /^(utun|bridge|vmnet|vboxnet|docker|veth|llw|awdl|ppp|tun|tap|zt|anpi|vethernet|vmware|virtualbox|bluetooth|loopback)/i.test(name);
       let score = virtual ? 4 : /^(en|eth|wl)/i.test(name) ? 2 : 3;
       if (!virtual && consoleIp && net.isIPv4(consoleIp) && sameSubnet(consoleIp, a.address, a.netmask)) score = 1;
       if (wifiIfaces.has(name)) score = 0;
@@ -145,7 +145,7 @@ try { shureList = JSON.parse(fs.readFileSync(SHURE_FILE, 'utf8')); } catch {}
 function nicList() {
   const out = [];
   for (const [name, list] of Object.entries(os.networkInterfaces())) {
-    if (/^(utun|bridge|vmnet|vboxnet|docker|veth|llw|awdl|ppp|tun|tap|zt|anpi)/i.test(name)) continue;
+    if (/^(utun|bridge|vmnet|vboxnet|docker|veth|llw|awdl|ppp|tun|tap|zt|anpi|vethernet|vmware|virtualbox|bluetooth|loopback)/i.test(name)) continue;
     const a = (list || []).find((x) => (x.family === 'IPv4' || x.family === 4) && !x.internal);
     if (a) out.push({ name, address: a.address, wifi: wifiIfaces.has(name) });
   }

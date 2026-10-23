@@ -1,0 +1,31 @@
+MEDIDORES para Windows (versión portable)
+==========================================
+
+CÓMO USARLA
+1. Descomprime esta carpeta donde quieras (por ejemplo, en el Escritorio o en Documentos).
+   No la abras desde dentro del ZIP: primero hay que extraerla.
+2. Abre Medidores.exe. No hace falta instalar nada más.
+
+LA PRIMERA VEZ
+- Windows puede mostrar "Windows protegió su PC" (SmartScreen), porque la app no está firmada.
+  Pulsa "Más información" y luego "Ejecutar de todas formas". Solo hace falta una vez.
+- Windows preguntará si permites que Medidores se comunique por la red. Marca "Redes privadas"
+  y pulsa "Permitir acceso". Sin esto, los móviles no podrán conectarse.
+
+USO
+- Elige tu mesa en la pantalla de conexión y escanea el código QR con el móvil (misma wifi).
+- Para dar control a un móvil: botón del móvil (arriba) > Control > escanear ese código.
+- Menú Servidor > "Servir también la versión de escenario" para los técnicos de escenario.
+- Al cerrar la ventana se cierra todo.
+
+ACTUALIZACIONES
+- La app comprueba sola si hay una versión nueva (al abrir y cada hora) y te avisa con
+  "Reiniciar ahora / Más tarde". También en el menú Medidores > Buscar actualizaciones.
+- Solo se actualiza el código de la app. Si algún día hace falta un Electron nuevo, habrá que
+  descargar de nuevo el ZIP completo.
+
+DÓNDE SE GUARDAN LOS DATOS
+- En %APPDATA%\medidores-app (menú Servidor > Abrir carpeta de datos).
+- Para borrarlo todo: cierra la app, elimina esa carpeta y la carpeta de Medidores.
+
+Licencia: Copyright (c) 2026 Pablo Olivares Rodriguez. Todos los derechos reservados.

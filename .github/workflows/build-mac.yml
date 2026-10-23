@@ -23,4 +23,4 @@ jobs:
         run: |
           TAG="mac-$VERSION"
           gh release create "$TAG" dist/*.zip dist/update.tar.gz --target "$GITHUB_SHA" --title "Medidores.app ($TAG)" \
-            --notes "Medidores.app para Mac. Elige Apple-Silicon (M1–M4) o Intel, descomprime y abre «Instalar Medidores.command»."
+            --notes "Mac: elige Apple-Silicon (M1–M4) o Intel, descomprime y abre «Instalar Medidores.command». Windows: descarga Medidores-Windows-x64.zip, descomprime y abre Medidores.exe (lee LEEME.txt)."

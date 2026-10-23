@@ -83,6 +83,7 @@ function createWindow(port) {
   win = new BrowserWindow({
     width: 1100, height: 780, minWidth: 380, minHeight: 500,
     title: 'Medidores', backgroundColor: '#111111',
+    ...(fs.existsSync(path.join(app.getAppPath(), 'icon.png')) ? { icon: path.join(app.getAppPath(), 'icon.png') } : {}), // icono de la ventana en Windows/Linux
     webPreferences: { contextIsolation: true, sandbox: true },
   });
   win.loadURL(`http://localhost:${port}`);
@@ -157,8 +158,10 @@ function buildMenu() {
         ? { label: `Reiniciar para actualizar a la ${update.version}`, click: restartForUpdate }
         : { label: update.checking ? 'Buscando actualizaciones…' : 'Buscar actualizaciones…', enabled: !update.checking, click: () => checkUpdates(true) },
       { type: 'separator' },
-      { role: 'hide', label: 'Ocultar Medidores' }, { role: 'hideOthers', label: 'Ocultar otros' }, { role: 'unhide', label: 'Mostrar todo' },
-      { type: 'separator' },
+      ...(process.platform === 'darwin' ? [
+        { role: 'hide', label: 'Ocultar Medidores' }, { role: 'hideOthers', label: 'Ocultar otros' }, { role: 'unhide', label: 'Mostrar todo' },
+        { type: 'separator' },
+      ] : []),
       { role: 'quit', label: 'Salir de Medidores' },
     ] },
     { label: 'Edición', submenu: [
