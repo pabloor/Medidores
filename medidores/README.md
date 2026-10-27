@@ -93,6 +93,14 @@ La IP de la mesa aparece en su pantalla de configuración de red. El driver preg
 - **CL/QL y Rivage PM:** según la documentación de la comunidad, solo hay medidores de Mix y Matrix por este protocolo. El driver intenta pedir también los canales y, si la mesa los rechaza, los oculta.
 - La DM7 usa una escala de medidores distinta. La tabla de conversión (`drivers/yamaha-dm7-meter.json`) procede del módulo yamaha-rcp de Bitfocus Companion, con licencia MIT.
 
+### Grupos DCA / VCA (todas las mesas con control)
+
+En el modo Control aparece una capa más, **DCA** (Yamaha y Midas) o **VCA** (DiGiCo), con fader y ON de cada grupo y sus nombres. Solo aparece si la mesa tiene esos grupos.
+
+- **Midas M32 / Behringer X32:** los 8 DCA (`/dca/N/fader`, `/dca/N/on`, `/dca/N/config/name`, según el código de referencia de la comunidad).
+- **Yamaha:** los DCA se leen como los Mix (`MIXER:Current/DCA/Fader/Level` y `/On`, nombres en `MIXER:Current/DCA/Label/Name`). Esos nombres de parámetro no se han podido verificar con una mesa real: si tu mesa no los reconoce, la capa simplemente no aparece y todo lo demás funciona igual que antes.
+- **DiGiCo:** los grupos de control (`/Control_Groups/N`).
+
 ### Control de la mesa (Yamaha y Midas M32 / Behringer X32)
 
 **Midas M32 y Behringer X32:** fader, ON y ganancia del previo de los 32 canales, los 16 buses, las 6 matrices y el Main (Stereo). La app lee el estado de la mesa al conectar y se entera de los cambios que se hacen en ella; los canales enlazados como pareja estéreo se mueven juntos. La ganancia es la del previo (de −12 a +60 dB, en pasos de 1 dB) que usa cada canal según su fuente y el enrutado de entradas; en los canales cuya fuente no tiene previo en la mesa (USB, tarjeta) no aparece. Las MR12 / MR18 (X-Air) siguen siendo solo de medición.
@@ -163,7 +171,7 @@ Con una **Quantum** (probado con una `SD7Q-Q1`, conjunto de comandos `iPad_q1`) 
 
 - **La mesa solo acepta un dispositivo de tipo iPad a la vez.** Si el técnico está usando la app oficial de DiGiCo en un iPad, esta app no podrá conectarse, y viceversa.
 - **La escala de los medidores no está calibrada.** El valor que envía la mesa se interpreta como −dB; compáralo con el medidor de la mesa.
-- Además de los 48 canales de entrada se ven y se controlan (fader y ON) las **salidas**: las auxiliares y los grupos juntos, como «Buses» (A1–A6 y G1–G6 en una Quantum), y las **matrices** de salida. En las DiGiCo el master es un grupo, así que no hay un «Main» aparte. Los medidores de las salidas se piden igual que los de los canales (según la tabla de comandos de la comunidad; sin verificar con una mesa real). La ganancia es la del previo analógico (`analog_gain`) y solo existe en las entradas. Faltan los grupos de control (VCA).
+- Además de los 48 canales de entrada se ven y se controlan (fader y ON) las **salidas**: las auxiliares y los grupos juntos, como «Buses» (A1–A6 y G1–G6 en una Quantum), y las **matrices** de salida. En las DiGiCo el master es un grupo, así que no hay un «Main» aparte. Los medidores de las salidas se piden igual que los de los canales (según la tabla de comandos de la comunidad; sin verificar con una mesa real). La ganancia es la del previo analógico (`analog_gain`) y solo existe en las entradas. Los **grupos de control (VCA)** de la mesa (12 en una Quantum) salen como una capa «VCA» en Control, con fader y ON.
 - El control de las salidas no se ha probado con una mesa real: antes de usarlo en un directo, con el sistema bajado, comprueba fader, ON (que no esté invertido) y, en las entradas, la ganancia.
 
 Configuración en la mesa:

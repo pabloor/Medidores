@@ -199,7 +199,7 @@ class DiGiCo extends EventEmitter {
     const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: false, pair: -1 }));
     // Los VCA llevan su número y nombre en la propia tira (no tienen medidor ni están en el layout de medidores).
     const vca = this.cs.vca.map((c, i) => ({ fader: c.fader, on: c.on, gain: null, link: 0, stereo: false, pair: -1, num: `V${i + 1}`, name: this.vcaNames[i + 1] || '' }));
-    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: map(this.cs.bus), mtx: map(this.cs.mtx), vca };
+    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'], vcaName: 'VCA' }, ch: map(this.cs.ch), main: [], bus: map(this.cs.bus), mtx: map(this.cs.mtx), vca };
   }
 
   ctlUpdate(g, i, param, v) {

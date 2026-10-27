@@ -20,7 +20,10 @@ const gainToF = (db) => (db - GAIN_MIN) / (GAIN_MAX - GAIN_MIN);
 const toStep = (db) => Math.round(db / GAIN_STEP) * GAIN_STEP;
 const fToGain = (f) => toStep(GAIN_MIN + f * (GAIN_MAX - GAIN_MIN));
 
-const GROUPS = { ch: { n: 32, path: (i) => `/ch/${pad2(i + 1)}` }, bus: { n: 16, path: (i) => `/bus/${pad2(i + 1)}` }, mtx: { n: 6, path: (i) => `/mtx/${pad2(i + 1)}` }, main: { n: 1, path: () => '/main/st' } };
+// Los 8 DCA van por /dca/N/fader y /dca/N/on (sin "/mix/"). Se publican como el grupo "vca" del control.
+const faderAddr = (g, i) => (g === 'vca' ? `/dca/${i + 1}/fader` : `${GROUPS[g].path(i)}/mix/fader`);
+const onAddr = (g, i) => (g === 'vca' ? `/dca/${i + 1}/on` : `${GROUPS[g].path(i)}/mix/on`);
+const GROUPS = { vca: { n: 8, path: (i) => `/dca/${i + 1}` }, ch: { n: 32, path: (i) => `/ch/${pad2(i + 1)}` }, bus: { n: 16, path: (i) => `/bus/${pad2(i + 1)}` }, mtx: { n: 6, path: (i) => `/mtx/${pad2(i + 1)}` }, main: { n: 1, path: () => '/main/st' } };
 const LINK_PATH = { ch: (k) => `/config/chlink/${2 * k + 1}-${2 * k + 2}`, bus: (k) => `/config/buslink/${2 * k + 1}-${2 * k + 2}`, mtx: (k) => `/config/mtxlink/${2 * k + 1}-${2 * k + 2}` };
 const ROUTE_PATH = (b) => `/config/routing/IN/${8 * b + 1}-${8 * b + 8}`;
 
@@ -43,7 +46,8 @@ class X32Control {
   constructor(driver) {
     this.d = driver;
     const mk = (n) => Array.from({ length: n }, () => ({ fader: null, on: null, gain: null, link: 0, stereo: false, pair: -1 }));
-    this.cs = { ch: mk(32), bus: mk(16), mtx: mk(6), main: mk(1) };
+    this.cs = { ch: mk(32), bus: mk(16), mtx: mk(6), main: mk(1), vca: mk(8) };
+    this.vcaNames = {};
     this.src = Array(32).fill(null);       // fuente de cada canal
     this.route = [null, null, null, null]; // enrutado de las entradas 1-8, 9-16…
     this.hamp = {};                        // headamp -> dB
@@ -65,8 +69,9 @@ class X32Control {
     this.tx('/xremote');
     for (let b = 0; b < 4; b++) this.ask(ROUTE_PATH(b));
     for (const [g, def] of Object.entries(GROUPS)) {
-      for (let i = 0; i < def.n; i++) { this.ask(`${def.path(i)}/mix/fader`); this.ask(`${def.path(i)}/mix/on`); }
+      for (let i = 0; i < def.n; i++) { this.ask(faderAddr(g, i)); this.ask(onAddr(g, i)); }
     }
+    for (let i = 0; i < 8; i++) this.ask(`/dca/${i + 1}/config/name`);
     for (let i = 0; i < 32; i++) this.ask(`${GROUPS.ch.path(i)}/config/source`);
     for (const g of ['ch', 'bus', 'mtx']) for (let k = 0; k < GROUPS[g].n / 2; k++) this.ask(LINK_PATH[g](k));
     // Si la mesa no ha contestado a todo, se publica lo que haya: lo demás llega después como cambios sueltos.
@@ -74,19 +79,20 @@ class X32Control {
     this.timers.push(setInterval(() => this.retryMissing(), 4000));
     // Relectura completa de faders y ON: recupera paquetes perdidos.
     this.timers.push(setInterval(() => {
-      for (const def of Object.values(GROUPS)) for (let i = 0; i < def.n; i++) { this.ask(`${def.path(i)}/mix/fader`); this.ask(`${def.path(i)}/mix/on`); }
+      for (const [g, def] of Object.entries(GROUPS)) for (let i = 0; i < def.n; i++) { this.ask(faderAddr(g, i)); this.ask(onAddr(g, i)); }
     }, 20000));
   }
 
   ask(addr) { this.queue.push(addr); }
 
-  stop() { this.timers.forEach((t) => { clearInterval(t); clearTimeout(t); }); clearTimeout(this.flushTimer); }
+  stop() { this.timers.forEach((t) => { clearInterval(t); clearTimeout(t); }); clearTimeout(this.flushTimer); clearTimeout(this.vcaNameTimer); }
 
   encode() {
     const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: c.stereo, pair: c.pair }));
     return {
-      caps: { gain: { min: GAIN_MIN, max: GAIN_MAX, step: GAIN_STEP }, faderMax: 10, mainNames: ['Stereo'] },
+      caps: { gain: { min: GAIN_MIN, max: GAIN_MAX, step: GAIN_STEP }, faderMax: 10, mainNames: ['Stereo'], vcaName: 'DCA' },
       ch: map(this.cs.ch), main: map(this.cs.main), bus: map(this.cs.bus), mtx: map(this.cs.mtx),
+      vca: this.cs.vca.map((c, i) => ({ fader: c.fader, on: c.on, gain: null, link: 0, stereo: false, pair: -1, num: `D${i + 1}`, name: this.vcaNames[i + 1] || '' })),
     };
   }
   publish() { this.ready = true; this.d.emit('control', this.encode()); }
@@ -153,6 +159,20 @@ class X32Control {
       this.setVal(g, i, key, key === 'fader' ? toDbOut(v) : v === 1);
       return true;
     }
+    if ((r = /^\/dca\/([1-8])\/(fader|on)$/.exec(m.address))) {
+      if (typeof v !== 'number') return true;
+      this.rx[r[2]]++;
+      this.setVal('vca', Number(r[1]) - 1, r[2], r[2] === 'fader' ? toDbOut(v) : v === 1);
+      return true;
+    }
+    if ((r = /^\/dca\/([1-8])\/config\/name$/.exec(m.address))) {
+      if (typeof v === 'string') {
+        this.vcaNames[r[1]] = v;
+        clearTimeout(this.vcaNameTimer); // los nombres llegan de uno en uno: se vuelve a publicar el control cuando han llegado
+        this.vcaNameTimer = setTimeout(() => { if (this.ready) this.d.emit('control', this.encode()); }, 400);
+      }
+      return true;
+    }
     if ((r = /^\/ch\/(\d\d)\/config\/source$/.exec(m.address))) {
       this.rx.source++; this.keep(m);
       this.src[Number(r[1]) - 1] = v; this.refreshHamp(); return true;
@@ -187,13 +207,13 @@ class X32Control {
     if (key === 'fader') {
       const f = quant(dbToFader(value === -Infinity || value == null ? -90 : Number(value)));
       const out = toDbOut(f);
-      for (const j of targets) { this.queueSet(`${GROUPS[g].path(j)}/mix/fader`, osc.float(f)); if (j !== i) this.setVal(g, j, 'fader', out); }
+      for (const j of targets) { this.queueSet(faderAddr(g, j), osc.float(f)); if (j !== i) this.setVal(g, j, 'fader', out); }
       c.fader = out;
       return out;
     }
     if (key === 'on') {
       const on = value ? 1 : 0;
-      for (const j of targets) { this.queueSet(`${GROUPS[g].path(j)}/mix/on`, on); if (j !== i) this.setVal(g, j, 'on', !!on); }
+      for (const j of targets) { this.queueSet(onAddr(g, j), on); if (j !== i) this.setVal(g, j, 'on', !!on); }
       c.on = !!on;
       return !!on;
     }

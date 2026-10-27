@@ -24,6 +24,12 @@ const params = {
   'MIXER:Current/Mtrx/Fader/On': Array.from({ length: METERS.Mtrx || 0 }, (_, k) => (k < 2 ? 1 : 0)),
   'MIXER:Current/St/Fader/On': Array.from({ length: ST }, () => 1),
 };
+// DCA=N: la mesa tiene N grupos DCA (p. ej. DCA=8). Sin esa variable no los tiene y responde ERROR, como una mesa que no los reconoce.
+if (process.env.DCA) {
+  const nd = Number(process.env.DCA);
+  params['MIXER:Current/DCA/Fader/Level'] = Array.from({ length: nd }, (_, k) => (k === 0 ? 0 : -1000));
+  params['MIXER:Current/DCA/Fader/On'] = Array.from({ length: nd }, (_, k) => (k === 2 ? 0 : 1));
+}
 // Como la DM7C real: unos canales responden en dB enteros y otros (45-48) en centésimas (2000 = 20,00 dB).
 if (MODEL === 'DM7') params['MIXER:Current/InCh/Port/HA/Gain'] = Array.from({ length: CH }, (_, k) => (k === 10 || k === 24 || k === 25 ? null : k >= 44 && k <= 47 ? (18 + (k % 3)) * 100 : 20 + (k % 30)));
 // Grupos de link como en la DM7C real: 1-2, 3-4, 41-42 (grupo 12), 47-48 (grupo 14)… La ganancia no se propaga.
@@ -59,6 +65,7 @@ net.createServer((c) => {
       else if (cmd === 'get' && addr === 'MIXER:Current/InCh/Role') c.write(`OK get ${addr} ${x} 0 "${ROLES[x] || 'Mono'}"\n`);
       else if (cmd === 'link') { LINKS[Number(addr)] = Number(x); c.write('OK link\n'); } // solo para pruebas: vincula sin avisar
       else if (cmd === 'get' && addr === 'MIXER:Current/InputChLink/LinkParams/HA') c.write(`OK get ${addr} ${x} 0 1\n`);
+      else if (cmd === 'get' && addr === 'MIXER:Current/DCA/Label/Name') c.write(process.env.DCA && Number(x) < Number(process.env.DCA) ? `OK get ${addr} ${x} 0 "DCA ${Number(x) + 1}"\n` : 'ERROR get InvalidArgument\n');
       else if (cmd === 'get' && addr.endsWith('/Label/Name')) c.write(`OK get ${addr} ${x} 0 "${addr.includes('/Mix/') ? ['Mon Voz', 'Mon Guit', 'Mon Bajo', 'Mon Bat'][x] || `Mix ${Number(x) + 1}` : addr.includes('/Mtrx/') ? ['PA L', 'PA R', 'Front'][x] || `Mtx ${Number(x) + 1}` : names[x] || ''}"\n`);
       else if (cmd === 'get' || cmd === 'set') {
         const arr = params[addr];

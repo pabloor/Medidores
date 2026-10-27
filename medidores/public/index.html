@@ -1237,6 +1237,7 @@
   // =============== Capas del modo Control ===============
   const csKey = (cs) => `${cs.g}:${cs.i}`;
   const layerName = (g) => {
+    if (g === 'vca' && ctrl && ctrl.caps && ctrl.caps.vcaName) return ctrl.caps.vcaName; // cada mesa los llama a su manera: DCA (Yamaha, Midas) o VCA (DiGiCo)
     const lg = lastLayout && lastLayout.groups.find((x) => x.id === g);
     return lg ? groupName(lg) : t('ly.' + g);
   };

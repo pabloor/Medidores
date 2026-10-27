@@ -39,7 +39,8 @@ function gainProfile(model) {
   return null;
 }
 
-const FADER = { ch: 'MIXER:Current/InCh/Fader', main: 'MIXER:Current/St/Fader', bus: 'MIXER:Current/Mix/Fader', mtx: 'MIXER:Current/Mtrx/Fader' };
+const FADER = { ch: 'MIXER:Current/InCh/Fader', main: 'MIXER:Current/St/Fader', bus: 'MIXER:Current/Mix/Fader', mtx: 'MIXER:Current/Mtrx/Fader',
+  vca: 'MIXER:Current/DCA/Fader' }; // grupos DCA: se leen como los Mix; si la mesa no los reconoce, la lista queda vacía
 
 // Grupos de link de canales de entrada (verificado con el volcado de parámetros de una DM7C V1.73):
 //   InputChLink/InCh/Assign <canal>          -> número de grupo (0 = sin vincular)
@@ -122,6 +123,7 @@ class Yamaha extends EventEmitter {
     clearTimeout(this.resyncTimer);
     this.sub = {};
     this.names = {};
+    this.vcaNames = {};
     this.lastRx = 0;
     this.queue = [];
     this.busy = null;
@@ -321,17 +323,18 @@ class Yamaha extends EventEmitter {
     }
     // Mix y Matrices: fader y ON (se leen hasta que la mesa deja de responder; el número depende del modelo).
     const outs = {};
-    for (const g of ['bus', 'mtx']) {
+    for (const g of ['bus', 'mtx', 'vca']) {
       outs[g] = [];
       for (let x = 0; x < 96; x++) {
         const lvl = await this.readInt(`${FADER[g]}/Level`, x);
         if (lvl == null) break;
         const on = await this.readInt(`${FADER[g]}/On`, x);
         outs[g].push({ fader: lvl, on: on == null ? null : on === 1, gain: null });
+        if (g === 'vca') { const nr = await this.request(`get MIXER:Current/DCA/Label/Name ${x} 0`, 'get'); this.vcaNames[x] = nr.ok ? (nr.t[5] || '') : ''; }
       }
     }
     if (!this.sock || this.sock.destroyed) return;
-    this.ctrl = { ch, main, bus: outs.bus, mtx: outs.mtx };
+    this.ctrl = { ch, main, bus: outs.bus, mtx: outs.mtx, vca: outs.vca };
     this.gp = gp;
     this.ctrlLoading = false;
     this.emitControl();
@@ -346,11 +349,13 @@ class Yamaha extends EventEmitter {
         gain: this.gp ? { min: this.gp.min, max: this.gp.max, step: 1 } : null,
         faderMax: 10,
         mainNames: this.ctrl.main.length === 2 ? ['Stereo A', 'Stereo B'] : ['Stereo'],
+        ...((this.ctrl.vca || []).length ? { vcaName: 'DCA' } : {}),
       },
       ch: map(this.ctrl.ch),
       main: map(this.ctrl.main),
       bus: map(this.ctrl.bus || []),
       mtx: map(this.ctrl.mtx || []),
+      ...((this.ctrl.vca || []).length ? { vca: map(this.ctrl.vca).map((c, i) => ({ ...c, num: `D${i + 1}`, name: this.vcaNames[i] || '' })) } : {}),
     });
   }
 
@@ -366,6 +371,8 @@ class Yamaha extends EventEmitter {
     else if (address === `${FADER.bus}/On`) { g = 'bus'; key = 'on'; v = value === 1; }
     else if (address === `${FADER.mtx}/Level`) { g = 'mtx'; key = 'fader'; v = value; }
     else if (address === `${FADER.mtx}/On`) { g = 'mtx'; key = 'on'; v = value === 1; }
+    else if (address === `${FADER.vca}/Level`) { g = 'vca'; key = 'fader'; v = value; }
+    else if (address === `${FADER.vca}/On`) { g = 'vca'; key = 'on'; v = value === 1; }
     else if (this.gp && address === this.gp.path) { g = 'ch'; key = 'gain'; }
     else if (address === LINK_ASSIGN && this.link) { this.setLink(x, value); return; }
     else if (address === LINK_HA && this.link) { this.link.ha[x + 1] = value === 1; return; }

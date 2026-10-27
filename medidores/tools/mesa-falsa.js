@@ -27,8 +27,8 @@ const remotes = new Map();               // "ip:puerto" -> caduca
 const fl = (v) => ({ f: v });
 function defaultValue(addr) {
   let m;
-  if (/\/mix\/fader$/.test(addr)) return fl(0.75);
-  if (/\/mix\/on$/.test(addr)) return 1;
+  if (/\/mix\/fader$/.test(addr) || /^\/dca\/\d\/fader$/.test(addr)) return fl(0.75);
+  if (/\/mix\/on$/.test(addr) || /^\/dca\/\d\/on$/.test(addr)) return 1;
   if ((m = /^\/ch\/(\d\d)\/config\/source$/.exec(addr))) return Number(m[1]);
   // ROUTE0=4: el bloque de entradas 1-8 llega por AES50-A (A1-8), como con una caja de escenario
   if ((m = /^\/config\/routing\/IN\/(\d+)-/.exec(addr))) return m[1] === '1' && process.env.ROUTE0 ? Number(process.env.ROUTE0) : (Number(m[1]) - 1) / 8;
@@ -51,7 +51,7 @@ sock.on('message', (buf, r) => {
   const drop = Number(process.env.DROP || 0);
   const reply = (addr, args) => { if (drop && Math.random() < drop) return; sock.send(osc.encode(addr, args), r.port, r.address); };
   if (!xair && m.address === '/xremote') { remotes.set(`${r.address}:${r.port}`, Date.now() + 10000); return; }
-  if (!xair && /^\/(ch|bus|mtx|main|headamp|config)\//.test(m.address) && !m.address.endsWith('/config/name')) {
+  if (!xair && /^\/(ch|bus|mtx|main|headamp|config|dca)\//.test(m.address) && !m.address.endsWith('/config/name')) {
     if (m.args.length === 0) {
       const v = state.has(m.address) ? state.get(m.address) : defaultValue(m.address);
       if (v !== undefined) reply(m.address, [argOf(v)]);
@@ -65,7 +65,7 @@ sock.on('message', (buf, r) => {
   }
   if (m.address === '/xinfo') reply('/xinfo', ['127.0.0.1', xair ? 'XR18-Prueba' : 'X32-Prueba', xair ? 'XR18' : 'X32', '4.06']);
   else if (m.address === '/meters') subs.set(`${r.address}:${r.port}|${m.args[0]}`, Date.now() + 10000);
-  else if (m.address.endsWith('/config/name')) reply(m.address, [m.address.includes('/ch/') ? `Fuente ${m.address.match(/\d+/)[0]}` : '']);
+  else if (m.address.endsWith('/config/name')) reply(m.address, [m.address.includes('/ch/') ? `Fuente ${m.address.match(/\d+/)[0]}` : m.address.includes('/dca/') ? `DCA ${m.address.match(/\d+/)[0]}` : '']);
 });
 
 setInterval(() => {
