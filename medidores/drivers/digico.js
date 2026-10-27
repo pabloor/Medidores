@@ -43,6 +43,11 @@ class DiGiCo extends EventEmitter {
     this.resubAt = [];      // cuándo se renovó la suscripción (para ver si coincide con los parones)
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
     this.chSrc = 'post'; this.outSrc = 'fader'; // de dónde se piden los medidores: entradas post|fader, salidas fader|output
+    // Medidor de entrada más fino: post_meter y pre_meter llegan en escalones de 3 dB, pero entre ellos solo está el trim
+    // (dB con decimales, medido en una Quantum: post = pre + trim). Si el trim no es múltiplo de 3, los escalones de uno y otro
+    // caen en sitios distintos y cruzarlos acota el nivel a menos de 3 dB. Se muestra el tope del intervalo (como hace la mesa).
+    this.preTrim = true;
+    this.trims = []; this.postM = []; this.preM = []; // trim (dB) y último valor (−dB) de post y pre de cada entrada
     this.chOff = 0;       // dB que se restan a los medidores de entrada (0 = el valor tal cual lo manda la mesa; probado con 1,5 y se veía más bajo que la consola)
     this.rise = 0;        // suavizado de la subida del medidor en la interfaz (ms, 0 = instantánea)
     this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
@@ -163,6 +168,16 @@ class DiGiCo extends EventEmitter {
   }
   // Ids del lado derecho de las salidas: van detrás de todos los izquierdos (entradas, buses, matrices).
   rightBase() { return this.count + this.nBus() + this.out.mtx; }
+  // Ids del pre_meter de las entradas: detrás de los derechos de las salidas.
+  preBase() { return this.rightBase() + this.nBus() + this.out.mtx; }
+  // Nivel de una entrada (dB, sin el ajuste chOff) cruzando post_meter con pre_meter + trim. Si no se cruzan, solo post.
+  chLevel(i) {
+    const p = this.postM[i], q = this.preM[i], tr = this.trims[i];
+    if (p == null) return null;
+    if (!this.preTrim || p >= 100 || q == null || q >= 100 || typeof tr !== 'number') return -p;
+    const top = Math.min(-p, -q + tr), bottom = Math.max(-p - 3, -q - 3 + tr);
+    return top > bottom ? top : -p;
+  }
   // Ruta base de una tira: /Input_Channels/N, /Aux_Outputs/N, /Group_Outputs/N o /Matrix_Outputs/N.
   stripBase(g, i) {
     if (g === 'ch') return `/Input_Channels/${i + 1}`;
@@ -280,6 +295,16 @@ class DiGiCo extends EventEmitter {
       for (let i = 0; i < n; i++, id++) {
         const myId = id, path = this.meterPath(g, i, 'right');
         setTimeout(() => this.send(`/Meters/request/${myId}`, [path]), 20 + (++slot) * 8);
+      }
+    }
+    // pre_meter de las entradas, para afinar con el trim (ver chLevel)
+    if (this.preTrim) {
+      for (let i = 0; i < this.count; i++, id++) {
+        const myId = id, base = this.stripBase('ch', i);
+        setTimeout(() => {
+          this.send(`/Meters/request/${myId}`, [`${base}/Channel_Input/pre_meter/left`]);
+          if (clear) this.send(`${base}/Channel_Input/trim/?`);
+        }, 20 + (++slot) * 8);
       }
     }
     this.subscribedAt = Date.now();
@@ -401,6 +426,8 @@ class DiGiCo extends EventEmitter {
       this.layoutTimer = setTimeout(() => this.emitLayout(), 300);
       return;
     }
+    const tm = /^\/Input_Channels\/(\d+)\/Channel_Input\/trim$/.exec(m.address);
+    if (tm && typeof m.args[0] === 'number') { this.trims[Number(tm[1]) - 1] = m.args[0]; return; }
     const nm = m.address.match(/^\/Input_Channels\/(\d+)\/Channel_Input\/name$/);
     if (nm && typeof m.args[0] === 'string') {
       this.names[nm[1]] = m.args[0];
@@ -435,7 +462,16 @@ class DiGiCo extends EventEmitter {
       if (this.series) this.series.ids.add(id);
       if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo, v]);
       const m = this.meterMode === 'mix' ? (hi + lo) / 2 : this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
-      const db = -m - (id < this.count && m < 100 ? this.chOff : 0);
+      const pb = this.preBase();
+      if (id >= pb && id < pb + this.count) { // pre_meter de una entrada: solo afina el valor de post_meter
+        const i = id - pb;
+        this.preM[i] = m;
+        const l = this.chLevel(i);
+        if (l != null) this.values[i] = Math.max(-90, Math.min(20, l - (this.postM[i] < 100 ? this.chOff : 0)));
+        continue;
+      }
+      if (id < this.count) this.postM[id] = m;
+      const db = id < this.count ? this.chLevel(id) - (m < 100 ? this.chOff : 0) : -m;
       const val = Math.max(-90, Math.min(20, db));
       // Salidas: id izquierdo = rb - (nb + nm) + j, id derecho = rb + j; se muestra el lado más alto.
       const rb = this.rightBase(), side = (L, R, j, out) => { const r = R[j], l = L[j]; out[j] = Math.max(l == null ? -90 : l, r == null ? -90 : r); };
@@ -460,6 +496,7 @@ class DiGiCo extends EventEmitter {
     if (this.count) this.subscribe(true);
     return `entradas ${this.chSrc}, salidas ${this.outSrc}`;
   }
+  setPreTrim(v) { this.preTrim = !/^(0|no|false|off)$/i.test(String(v)); if (this.count) this.subscribe(true); return this.preTrim; }
   setChOff(v) { const n = Number(v); if (Number.isFinite(n) && n >= -6 && n <= 6) this.chOff = n; return this.chOff; }
   setRise(v) { const n = Number(v); if (Number.isFinite(n) && n >= 0 && n <= 500) { this.rise = n; this.emit('meterRise', n); } return this.rise; }
   setFall(v) { const n = Number(v); if (Number.isFinite(n) && n >= 5 && n <= 400) { this.fall = n; this.emit('meterFall', n); } return this.fall; }

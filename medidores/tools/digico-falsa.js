@@ -8,6 +8,11 @@ const paths = new Map(); // id -> ruta pedida (para dar señal a un lado concret
 let lastReq = 0;
 const initial = new Set(); // ids recién pedidos: se les manda su valor actual una vez, como hace la mesa
 const ctl = new Map(); // valores de control (fader, mute, ganancia) que ha fijado la app
+// Canal 7: tono que sube y baja despacio entre −40 y −10 dB, con el trim a TRIM7 dB (por defecto 1,5). Como la mesa real,
+// post_meter y pre_meter llegan en escalones de 3 dB (redondeando hacia 0 dB) y post = pre + trim.
+const TRIM7 = Number(process.env.TRIM7 || 1.5);
+const level7 = (t) => -25 + 15 * Math.sin(t / 3); // nivel real (dB) en post_meter
+const steps3 = (db) => Math.min(126, Math.max(0, 3 * Math.floor(-db / 3)));
 const HOST = process.env.HOST || '127.0.0.1'; // HOST=192.0.2.2 para probar con una IP de la red
 const bundle = (msg) => { const h = Buffer.alloc(16); h.write('#bundle\0', 0, 'ascii'); h.writeUInt32BE(0, 8); h.writeUInt32BE(1, 12); const s = Buffer.alloc(4); s.writeUInt32BE(msg.length); return Buffer.concat([h, s, msg]); };
 const reply = (a, args) => { const m = osc.encode(a, args); sock.send(process.env.BUNDLE ? bundle(m) : m, 9000, HOST); }; // BUNDLE=1: como con "Bundles" activado en la mesa
@@ -22,6 +27,7 @@ sock.on('message', (b) => {
     const f = Buffer.alloc(4); f.writeFloatBE(Math.round((0.5 + 0.5 * Math.sin(Date.now() / 700)) * 100) / 100); // valor que cambia con el tiempo
     sock.send(Buffer.concat([pad(addr), f]), 9000, HOST);
   }
+  else if (m.address === '/Input_Channels/7/Channel_Input/trim/?') reply('/Input_Channels/7/Channel_Input/trim', [osc.float(TRIM7)]);
   else if (/^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs|Control_Groups)\/\d+\/(fader|mute|Channel_Input\/analog_gain)\/\?$/.test(m.address)) {
     // consulta de un parámetro de control: responde con el valor guardado (o uno por defecto)
     const a = m.address.slice(0, -2);
@@ -52,8 +58,10 @@ setInterval(() => {
   if (process.env.QUIET) initial.clear();
   if (!ids.length) return;
   const packed = (id) => {
-    if (id === 6 || id === 26) {
-      // el canal 7 tiene una señal con dinámica: nivel (mitad baja) que sube y baja rápido; pico retenido (mitad alta) que cae despacio
+    const pm = /^\/Input_Channels\/7\/Channel_Input\/(post|pre)_meter\/left$/.exec(paths.get(id) || '');
+    if (pm) { const v = steps3(level7(t) - (pm[1] === 'pre' ? TRIM7 : 0)); return (v << 16) | v; }
+    if (id === 26) {
+      // la tira 26 tiene una señal con dinámica: nivel (mitad baja) que sube y baja rápido; pico retenido (mitad alta) que cae despacio
       const lvl = Math.round(30 + 12 * Math.abs(Math.sin(t * 7)) * Math.abs(Math.sin(t * 1.3)));
       const hold = Math.max(18, Math.round(18 + ((t * 4) % 12)));
       return (hold << 16) | lvl;

@@ -366,6 +366,9 @@ const server = http.createServer((req, res) => {
     if (q.get('ajuste') != null && typeof driver.setChOff === 'function') {
       return res.end(`Ajuste de los medidores de entrada: -${driver.setChOff(q.get('ajuste'))} dB (por defecto 0; 0 = valor tal cual lo manda la mesa)`);
     }
+    if (q.get('pretrim') != null && typeof driver.setPreTrim === 'function') {
+      return res.end(`Medidor de entrada afinado con pre_meter + trim: ${driver.setPreTrim(q.get('pretrim')) ? 'activado' : 'desactivado'} (por defecto activado; ?pretrim=0 lo desactiva)`);
+    }
     if (q.get('subida') != null && typeof driver.setRise === 'function') {
       return res.end(`Suavizado de la subida: ${driver.setRise(q.get('subida'))} ms (0 = sin suavizado; por defecto 0)`);
     }
