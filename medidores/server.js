@@ -360,6 +360,15 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     if (!driver || typeof driver.diagnostics !== 'function') return res.end('La mesa conectada no ofrece diagnóstico.');
     const q = new URL(req.url, 'http://x').searchParams;
+    if (q.get('modo') || q.get('caida')) { // ajustes en directo del medidor (DiGiCo)
+      if (typeof driver.setMeterMode === 'function') {
+        if (q.get('modo')) driver.setMeterMode(q.get('modo'));
+        if (q.get('caida')) driver.setFall(q.get('caida'));
+        return res.end(`Ajustes del medidor: modo ${driver.meterMode}, caída ${driver.fall} dB/s\n(level = mitad baja, peak = mitad alta, max = la mayor de las dos)`);
+      }
+      return res.end('Esta mesa no tiene ajustes de medidor.');
+    }
+    if (q.get('serie') && typeof driver.recordSeries === 'function') return driver.recordSeries(Number(q.get('serie'))).then((txt) => res.end(txt)).catch((e) => res.end(`La grabación falló: ${e.message}`));
     if (q.get('medidor') && typeof driver.probeMeters === 'function') { // prueba de medidores sueltos (≈ 9 s)
       return driver.probeMeters(Number(q.get('medidor'))).then((txt) => res.end(txt)).catch((e) => res.end(`La prueba falló: ${e.message}`));
     }
@@ -400,7 +409,7 @@ server.on('upgrade', (req, socket, head) => {
   else if (p === '/enlace' && ROLE === 'sala') linkWss.handleUpgrade(req, socket, head, (ws) => linkWss.emit('connection', ws, req));
   else socket.destroy();
 });
-const state = { config: null, status: { state: 'setup', detail: 'Elige tu mesa para empezar', key: 'st.setup' }, layout: null, levels: null, raw: null, control: null };
+const state = { config: null, status: { state: 'setup', detail: 'Elige tu mesa para empezar', key: 'st.setup' }, layout: null, levels: null, raw: null, control: null, meterFall: null };
 const q = (db) => (db <= -90 ? -90 : Math.round(db * 10) / 10); // décimas de dB: el umbral de saturación es exacto
 let driver = null;
 let dirty = false;
@@ -508,7 +517,7 @@ const infoMsg = () => ({ type: 'config', config: state.config, urls: lanUrls(), 
 
 function startDriver(cfg) {
   if (driver) { driver.removeAllListeners(); driver.stop(); driver = null; }
-  state.layout = state.levels = state.raw = state.control = null;
+  state.layout = state.levels = state.raw = state.control = state.meterFall = null;
   resetShowLog();
   lc.active = false; lc.items = [];
   broadcast({ type: 'clip-log', events: [] });
@@ -527,6 +536,7 @@ function startDriver(cfg) {
   driver.on('raw', (r) => { state.raw = r; });
   driver.on('meterPoint', (v) => { prefs.meterPoint = v; broadcast(meterPointMsg()); });
   // Control (solo drivers que lo admiten): estado completo y cambios sueltos.
+  driver.on('meterFall', (v) => { state.meterFall = v; broadcast({ type: 'meter-fall', value: v }); }); // caída del medidor ajustada desde el diagnóstico
   driver.on('control', (c) => { state.control = c; broadcast({ type: 'control', ...enc(c) }); });
   driver.on('param', (p) => {
     const c = state.control && state.control[p.g] && state.control[p.g][p.i];
@@ -562,6 +572,7 @@ wss.on('connection', (ws, req) => {
   ws.send(JSON.stringify({ type: 'status', ...state.status }));
   if (state.layout) ws.send(JSON.stringify({ type: 'layout', ...state.layout }));
   if (state.control) ws.send(JSON.stringify({ type: 'control', ...enc(state.control) }));
+  if (state.meterFall) ws.send(JSON.stringify({ type: 'meter-fall', value: state.meterFall }));
   ws.send(JSON.stringify(shureMsg()));
   ws.send(JSON.stringify(meterPointMsg()));
   ws.send(JSON.stringify({ type: 'clip-log', events: clipLog.slice(-300) }));

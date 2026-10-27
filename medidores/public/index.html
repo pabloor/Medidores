@@ -718,7 +718,7 @@
   }
   const TICKS = [0, -3, -6, -12, -18, -24, -36, -48];
   const GROUP_COLORS = { ch: '--g-ch', bus: '--g-bus', mtx: '--g-mtx', fxr: '--g-fx', fxs: '--g-fx', aux: '--g-fx', main: '--g-main' };
-  const FALL = 26;      // dB por segundo de caída
+  let FALL = 26;        // dB por segundo de caída (la mesa puede ajustarla: mensaje meter-fall)
   const HOLD_MS = 1600; // retención de pico
   const CLIP_DB = 0; // igual que la DM7 (verificado con tono): se enciende al llegar a 0 dB
 
@@ -890,6 +890,7 @@
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.type === 'role') onRole(m);
+      else if (m.type === 'meter-fall') { const v = Number(m.value); if (v >= 5 && v <= 400) FALL = v; }
       else if (m.type === 'meters') onMeters(m.g);
       else if (m.type === 'layout') {
         buildLayout(m);

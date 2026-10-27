@@ -50,7 +50,12 @@ setInterval(() => {
   if (process.env.QUIET) initial.clear();
   if (!ids.length) return;
   const packed = (id) => {
-    if (id === 6 || id === 26) { const lvl = Math.round(-(-30 + 3 * Math.sin(t * 5))); return (27 << 16) | lvl; } // el canal 7 tiene ruido rosa
+    if (id === 6 || id === 26) {
+      // el canal 7 tiene una señal con dinámica: nivel (mitad baja) que sube y baja rápido; pico retenido (mitad alta) que cae despacio
+      const lvl = Math.round(30 + 12 * Math.abs(Math.sin(t * 7)) * Math.abs(Math.sin(t * 1.3)));
+      const hold = Math.max(18, Math.round(18 + ((t * 4) % 12)));
+      return (hold << 16) | lvl;
+    }
     return (126 << 16) | 126;
   };
   for (let i = 0; i < ids.length; i += 24) {

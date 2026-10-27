@@ -40,6 +40,9 @@ class DiGiCo extends EventEmitter {
     this.lastAny = 0;  // último paquete de cualquier tipo recibido de la mesa
     this.meterSeen = false; // ¿ha llegado algún medidor desde que se conectó?
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
+    this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
+    this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
+    this.series = null;       // grabación de una serie de medidores para el diagnóstico
     // Diagnóstico: qué se ha enviado a la mesa y qué ha llegado (se consulta en /diagnostico).
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
@@ -384,7 +387,10 @@ class DiGiCo extends EventEmitter {
     for (let k = 0; k + 1 < args.length; k += 2) {
       const id = Number(args[k]), v = Number(args[k + 1]);
       if (!Number.isInteger(id) || !Number.isFinite(v) || id < 0) continue;
-      const db = -(v & 0xffff);
+      const lo = v & 0xffff, hi = (v >>> 16) & 0xffff;
+      if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo]);
+      const m = this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
+      const db = -m;
       const val = Math.max(-90, Math.min(20, db));
       if (id < this.count) this.values[id] = val;
       else if (id < this.count + nb) this.busVals[id - this.count] = val;
@@ -394,6 +400,31 @@ class DiGiCo extends EventEmitter {
     }
     this.emitLevels();
     this.emit('raw', this.raw);
+  }
+
+  // Ajustes en directo del medidor (desde /diagnostico?modo=…&caida=…): no se guardan, valen hasta cerrar la app.
+  setMeterMode(mode) { if (['level', 'peak', 'max'].includes(mode)) this.meterMode = mode; return this.meterMode; }
+  setFall(v) { const n = Number(v); if (Number.isFinite(n) && n >= 5 && n <= 400) { this.fall = n; this.emit('meterFall', n); } return this.fall; }
+
+  // Graba unos segundos los valores que manda la mesa para un canal, para ver su ritmo y cómo se comportan las dos mitades.
+  async recordSeries(ch = 7, ms = 12000) {
+    const n = Math.min(Math.max(Math.round(ch) || 7, 1), this.count || 48);
+    this.series = { id: n - 1, t0: Date.now(), rows: [] };
+    await new Promise((r) => setTimeout(r, ms));
+    const { rows } = this.series; this.series = null;
+    const out = [`SERIE DE MEDIDORES (canal ${n}, ${Math.round(ms / 1000)} s). Cada fila: tiempo (ms), mitad alta, mitad baja; los números son "−dB" (27 = −27 dB).`, ''];
+    if (!rows.length) return out.concat('No ha llegado ningún valor de ese canal (¿hay señal? ¿llegan medidores?)').join('\n');
+    const stat = (a) => { const s = [...a].sort((x, y) => x - y); return `mín ${s[0]}  mediana ${s[s.length >> 1]}  máx ${s[s.length - 1]}  distintos ${new Set(a).size}`; };
+    const dts = rows.slice(1).map((r, k) => r[0] - rows[k][0]);
+    out.push(`Muestras: ${rows.length} (${(rows.length / (ms / 1000)).toFixed(1)} por segundo)`);
+    if (dts.length) out.push(`Tiempo entre muestras (ms): ${stat(dts)}`);
+    out.push(`Mitad alta: ${stat(rows.map((r) => r[1]))}`);
+    out.push(`Mitad baja: ${stat(rows.map((r) => r[2]))}`);
+    out.push(`Alta menor que baja (= más fuerte): ${rows.filter((r) => r[1] < r[2]).length} | iguales: ${rows.filter((r) => r[1] === r[2]).length} | alta mayor: ${rows.filter((r) => r[1] > r[2]).length}`);
+    out.push('', 'tiempo   alta  baja');
+    const step = Math.max(1, Math.ceil(rows.length / 140));
+    for (let k = 0; k < rows.length; k += step) out.push(`${String(rows[k][0]).padStart(6)}  ${String(rows[k][1]).padStart(4)}  ${String(rows[k][2]).padStart(4)}`);
+    return out.join('\n');
   }
 
   // Un grupo de niveles por cada grupo del layout: entradas, buses (si hay) y matrices (si hay).
@@ -550,6 +581,7 @@ class DiGiCo extends EventEmitter {
     for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if ((a.family === 'IPv4' || a.family === 4) && !a.internal) ips.push(`${name} ${a.address}`);
     L.push(`Adaptadores de este ordenador: ${ips.join(' | ') || 'ninguno'}`);
     L.push(`Canales detectados: ${this.count || 'aún no (se usará ' + this.fallbackCount + ' si la mesa no los dice)'}`);
+    L.push(`Ajustes del medidor: modo ${this.meterMode}, caída ${this.fall} dB/s (cambiar: /diagnostico?modo=level|peak|max&caida=26; grabar: /diagnostico?serie=7)`);
     L.push(`Medidores: ${this.meterSeen ? 'llegan' : 'aún no han llegado'} (último ${this.lastRx ? 'hace ' + Math.round((Date.now() - this.lastRx) / 1000) + ' s' : 'nunca'}); suscripción renovada ${this.resubs} veces`);
     L.push('');
     L.push(`ENVIADO a la mesa: ${this.tx.total} paquetes`);
