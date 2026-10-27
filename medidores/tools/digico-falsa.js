@@ -11,11 +11,14 @@ const ctl = new Map(); // valores de control (fader, mute, ganancia) que ha fija
 // Canal 7: tono que sube y baja despacio entre −40 y −10 dB, con el trim a TRIM7 dB (por defecto 1,5). Como la mesa real,
 // post_meter y pre_meter llegan en escalones de 3 dB (redondeando hacia 0 dB) y post = pre + trim.
 const TRIM7 = Number(process.env.TRIM7 || 1.5);
-const level7 = (t) => -25 + 15 * Math.sin(t / 3); // nivel real (dB) en post_meter
+// OVER=1: el tono sube hasta pasar de 0 dB (de −6 a +2). Como la mesa real, el valor 0 (pico y nivel a 0 dB) solo se manda
+// una vez al pedir el medidor; después ya no.
+const level7 = process.env.OVER ? (t) => -2 + 4 * Math.sin(t / 3) : (t) => -25 + 15 * Math.sin(t / 3); // nivel real (dB) en post_meter
 const steps3 = (db) => Math.min(126, Math.max(0, 3 * Math.floor(-db / 3)));
 const HOST = process.env.HOST || '127.0.0.1'; // HOST=192.0.2.2 para probar con una IP de la red
+const PORT = Number(process.env.PORT || 9000); // PORT=9100 (con --listen-port 9100) para probar sin que interfiera una mesa real en la red
 const bundle = (msg) => { const h = Buffer.alloc(16); h.write('#bundle\0', 0, 'ascii'); h.writeUInt32BE(0, 8); h.writeUInt32BE(1, 12); const s = Buffer.alloc(4); s.writeUInt32BE(msg.length); return Buffer.concat([h, s, msg]); };
-const reply = (a, args) => { const m = osc.encode(a, args); sock.send(process.env.BUNDLE ? bundle(m) : m, 9000, HOST); }; // BUNDLE=1: como con "Bundles" activado en la mesa
+const reply = (a, args) => { const m = osc.encode(a, args); sock.send(process.env.BUNDLE ? bundle(m) : m, PORT, HOST); }; // BUNDLE=1: como con "Bundles" activado en la mesa
 sock.on('message', (b) => {
   const m = osc.decode(b);
   if (m.address === '/Console/Name/?') reply('/Console/Name', ['SD12 12345']);
@@ -25,7 +28,7 @@ sock.on('message', (b) => {
     // METERQ=1: contesta a la consulta de medidor con un OSC "sin etiquetas" (dirección + float), como DiGiCo
     const addr = Buffer.from(m.address.slice(0, -2) + '\0'); const pad = (x) => Buffer.concat([x, Buffer.alloc((4 - (x.length % 4)) % 4)]);
     const f = Buffer.alloc(4); f.writeFloatBE(Math.round((0.5 + 0.5 * Math.sin(Date.now() / 700)) * 100) / 100); // valor que cambia con el tiempo
-    sock.send(Buffer.concat([pad(addr), f]), 9000, HOST);
+    sock.send(Buffer.concat([pad(addr), f]), PORT, HOST);
   }
   else if (m.address === '/Input_Channels/7/Channel_Input/trim/?') reply('/Input_Channels/7/Channel_Input/trim', [osc.float(TRIM7)]);
   else if (/^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs|Control_Groups)\/\d+\/(fader|mute|Channel_Input\/analog_gain)\/\?$/.test(m.address)) {
@@ -55,7 +58,7 @@ setInterval(() => {
   if (!subs.size) return;
   // QUIET=1: solo se manda el valor inicial tras cada petición; si nadie cambia nada, la mesa no manda más
   const t = Date.now() / 1000, ids = process.env.QUIET ? [...initial].sort((a, b) => a - b) : [...subs].sort((a, b) => a - b);
-  if (process.env.QUIET) initial.clear();
+  const sentInitial = [...initial];
   if (!ids.length) return;
   const packed = (id) => {
     const pm = /^\/Input_Channels\/7\/Channel_Input\/(post|pre)_meter\/left$/.exec(paths.get(id) || '');
@@ -72,19 +75,21 @@ setInterval(() => {
   };
   for (let i = 0; i < ids.length; i += 24) {
     const args = [];
-    for (const id of ids.slice(i, i + 24)) args.push(id, packed(id));
-    sock.send(osc.encode('/Meters/values', args), 9000, HOST);
+    for (const id of ids.slice(i, i + 24)) { const v = packed(id); if (v !== 0 || initial.has(id)) args.push(id, v); }
+    if (!args.length) continue;
+    sock.send(osc.encode('/Meters/values', args), PORT, HOST);
   }
-  if (!process.env.QUIET && subs.has(6)) sock.send(osc.encode('/Meters/values', [6, packed(6)]), 9000, HOST);
+  for (const id of sentInitial) initial.delete(id);
+  if (!process.env.QUIET && subs.has(6) && packed(6) !== 0) sock.send(osc.encode('/Meters/values', [6, packed(6)]), PORT, HOST);
 }, 50);
 
 // Cada 2 s "alguien" toca la mesa: fader, mute y ganancia (trim) de algunos canales, como llegan de una mesa real.
 let k = 0;
 setInterval(() => {
   k++;
-  sock.send(osc.encode('/Input_Channels/3/fader', [osc.float(k % 2 ? -10 : 0)]), 9000, HOST);
-  sock.send(osc.encode('/Input_Channels/5/mute', [k % 2]), 9000, HOST);
-  sock.send(osc.encode('/Input_Channels/2/Channel_Input/trim', [osc.float(0.6315789222717285)]), 9000, HOST);
+  sock.send(osc.encode('/Input_Channels/3/fader', [osc.float(k % 2 ? -10 : 0)]), PORT, HOST);
+  sock.send(osc.encode('/Input_Channels/5/mute', [k % 2]), PORT, HOST);
+  sock.send(osc.encode('/Input_Channels/2/Channel_Input/trim', [osc.float(0.6315789222717285)]), PORT, HOST);
 }, 2000);
 
-sock.bind(8000, () => console.log('DiGiCo falsa escuchando en UDP 8000 (responde a 9000)'));
+sock.bind(8000, () => console.log(`DiGiCo falsa escuchando en UDP 8000 (responde a ${PORT})`));

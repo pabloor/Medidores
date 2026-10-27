@@ -54,6 +54,8 @@ class DiGiCo extends EventEmitter {
     this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
     this.series = null;       // grabación de una serie de medidores para el diagnóstico
     this.lastPacked = [];     // último valor crudo recibido de cada tira: { hi, lo, t }
+    this.meterPaths = [];     // ruta pedida para cada id de medidor
+    this.topPolled = [];      // cuándo se volvió a pedir cada medidor que estaba arriba del todo (ver pollTop)
     // Diagnóstico: qué se ha enviado a la mesa y qué ha llegado (se consulta en /diagnostico).
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
@@ -98,6 +100,7 @@ class DiGiCo extends EventEmitter {
     // La mesa solo manda un medidor cuando su valor cambia (con un tono fijo pasan muchos segundos sin mensajes). Se repite el
     // último nivel para que la interfaz no lo dé por perdido (cae a -90 si pasa 1,5 s sin datos); si la mesa no contesta, se deja de repetir.
     this.timers.push(setInterval(() => { if (this.count && this.meterSeen && Date.now() - this.lastAny < 10000) this.emitLevels(); }, 250));
+    this.timers.push(setInterval(() => { if (this.count && this.meterSeen && Date.now() - this.lastAny < 10000) this.pollTop(); }, 100));
     this.timers.push(setInterval(() => { if (this.sock && this.count) this.send('/Console/Name/?'); }, 2500)); // aviso de vida: la mesa contesta aunque nadie toque nada
   }
 
@@ -278,13 +281,13 @@ class DiGiCo extends EventEmitter {
   // clear = false: vuelve a pedir los mismos medidores sin borrar antes la suscripción, para que no haya un hueco sin medidores.
   subscribe(refresh = false, clear = true) {
     if (refresh) { this.resubs++; this.resubAt.push(Date.now()); if (this.resubAt.length > 30) this.resubAt.shift(); } else this.meterSeen = false;
-    if (clear) this.send('/Meters/clear');
+    if (clear) { this.send('/Meters/clear'); this.meterPaths = []; }
     let id = 0, slot = 0;
     for (const [g, n] of [['ch', this.count], ['bus', this.nBus()], ['mtx', this.out.mtx]]) {
       for (let i = 0; i < n; i++, id++) {
         const myId = id, path = this.meterPath(g, i), name = this.namePath(g, i);
         setTimeout(() => {
-          this.send(`/Meters/request/${myId}`, [path]);
+          this.requestMeter(myId, path);
           if (clear) this.send(`${name}/?`); // la renovación periódica (sin borrar) no vuelve a pedir los nombres
         }, 20 + (++slot) * 8); // espaciado: se sabe que las SD pierden ráfagas
       }
@@ -294,7 +297,7 @@ class DiGiCo extends EventEmitter {
     for (const [g, n] of [['bus', this.nBus()], ['mtx', this.out.mtx]]) {
       for (let i = 0; i < n; i++, id++) {
         const myId = id, path = this.meterPath(g, i, 'right');
-        setTimeout(() => this.send(`/Meters/request/${myId}`, [path]), 20 + (++slot) * 8);
+        setTimeout(() => this.requestMeter(myId, path), 20 + (++slot) * 8);
       }
     }
     // pre_meter de las entradas, para afinar con el trim (ver chLevel)
@@ -302,12 +305,28 @@ class DiGiCo extends EventEmitter {
       for (let i = 0; i < this.count; i++, id++) {
         const myId = id, base = this.stripBase('ch', i);
         setTimeout(() => {
-          this.send(`/Meters/request/${myId}`, [`${base}/Channel_Input/pre_meter/left`]);
+          this.requestMeter(myId, `${base}/Channel_Input/pre_meter/left`);
           if (clear) this.send(`${base}/Channel_Input/trim/?`);
         }, 20 + (++slot) * 8);
       }
     }
     this.subscribedAt = Date.now();
+  }
+
+  requestMeter(id, path) { this.meterPaths[id] = path; this.send(`/Meters/request/${id}`, [path]); }
+
+  // Medidores arriba del todo: cuando pico y nivel llegan a 0 dB (valor 0), la mesa deja de mandarlo (medido en una Quantum:
+  // solo lo manda una vez, al pedirlo). El último valor recibido (p. ej. −3 dB) se quedaría clavado. Si una tira estaba en
+  // los dos escalones de arriba y lleva un rato sin datos, se vuelve a pedir y la mesa contesta con su valor actual, también el 0.
+  pollTop() {
+    const now = Date.now();
+    for (let id = 0; id < this.lastPacked.length; id++) {
+      const lp = this.lastPacked[id], path = this.meterPaths[id];
+      if (!lp || !path || lp.lo > 3 || now - lp.t < 300) continue;
+      if (now - (this.topPolled[id] || 0) < 300) continue;
+      this.topPolled[id] = now;
+      this.send(`/Meters/request/${id}`, [path]);
+    }
   }
 
   // DiGiCo manda algunos medidores como un OSC "sin etiquetas": dirección + floats directamente, sin ",f".
