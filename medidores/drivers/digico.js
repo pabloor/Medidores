@@ -43,6 +43,7 @@ class DiGiCo extends EventEmitter {
     this.resubAt = [];      // cuándo se renovó la suscripción (para ver si coincide con los parones)
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
     this.chSrc = 'post'; this.outSrc = 'fader'; // de dónde se piden los medidores: entradas post|fader, salidas fader|output
+    this.chOff = 1.5;     // dB que se restan a los medidores de entrada: la mesa redondea hacia 0 en escalones de 3 dB; se muestra el centro del escalón
     this.rise = 0;        // suavizado de la subida del medidor en la interfaz (ms, 0 = instantánea)
     this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
     this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
@@ -421,7 +422,7 @@ class DiGiCo extends EventEmitter {
       if (this.series) this.series.ids.add(id);
       if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo, v]);
       const m = this.meterMode === 'mix' ? (hi + lo) / 2 : this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
-      const db = -m;
+      const db = -m - (id < this.count && m < 100 ? this.chOff : 0);
       const val = Math.max(-90, Math.min(20, db));
       if (id < this.count) this.values[id] = val;
       else if (id < this.count + nb) this.busVals[id - this.count] = val;
@@ -442,6 +443,7 @@ class DiGiCo extends EventEmitter {
     if (this.count) this.subscribe(true);
     return `entradas ${this.chSrc}, salidas ${this.outSrc}`;
   }
+  setChOff(v) { const n = Number(v); if (Number.isFinite(n) && n >= -6 && n <= 6) this.chOff = n; return this.chOff; }
   setRise(v) { const n = Number(v); if (Number.isFinite(n) && n >= 0 && n <= 500) { this.rise = n; this.emit('meterRise', n); } return this.rise; }
   setFall(v) { const n = Number(v); if (Number.isFinite(n) && n >= 5 && n <= 400) { this.fall = n; this.emit('meterFall', n); } return this.fall; }
 

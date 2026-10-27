@@ -363,6 +363,9 @@ const server = http.createServer((req, res) => {
     if ((q.get('entradas') || q.get('salidas')) && typeof driver.setMeterSource === 'function') {
       return res.end(`Origen de los medidores: ${driver.setMeterSource(q.get('entradas'), q.get('salidas'))}\n(entradas: post | fader · salidas: fader | output)`);
     }
+    if (q.get('ajuste') != null && typeof driver.setChOff === 'function') {
+      return res.end(`Ajuste de los medidores de entrada: -${driver.setChOff(q.get('ajuste'))} dB (por defecto 1.5; 0 = valor tal cual lo manda la mesa)`);
+    }
     if (q.get('subida') != null && typeof driver.setRise === 'function') {
       return res.end(`Suavizado de la subida: ${driver.setRise(q.get('subida'))} ms (0 = sin suavizado; por defecto 0)`);
     }
