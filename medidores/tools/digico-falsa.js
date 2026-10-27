@@ -28,15 +28,26 @@ sock.on('message', (b) => {
     ctl.set(m.address, m.args[0]); console.log(`[set] ${m.address} = ${m.args[0]}`);
   }
   else if (m.address === '/Meters/clear') subs.clear();
-  else if (m.address.endsWith('/post_meter')) { if (!process.env.NOMETERS) subs.add(m.args[0]); } // NOMETERS=1: no manda medidores, como la mesa de un usuario
+  else if (/^\/Meters\/request\/\d+$/.test(m.address) && typeof m.args[0] === 'string') { if (!process.env.NOMETERS) subs.add(Number(m.address.split('/').pop())); } // NOMETERS=1: no manda medidores
   else if (m.address.endsWith('/name/?')) reply(m.address.slice(0, -2), [`Canal ${m.address.split('/')[2]}`]);
 });
+// Medidores como los envía la mesa real: /Meters/values con pares (id 0-based, entero con dos mitades de 16 bits:
+// pico retenido arriba, nivel abajo, en −dB; 126 = silencio). Unas veces por lotes de 24 pares y otras de un solo canal.
 setInterval(() => {
   if (!subs.size) return;
-  const t = Date.now() / 1000, args = [];
-  for (const id of subs) { args.push(id, Math.pow(10, (-30 + 20 * Math.sin(t * 2 + id * 0.4)) / 20)); }
-  sock.send(osc.encode('/Meters/values', args), 9000, HOST);
+  const t = Date.now() / 1000, ids = [...subs].sort((a, b) => a - b);
+  const packed = (id) => {
+    if (id === 6) { const lvl = Math.round(-(-30 + 3 * Math.sin(t * 5))); return (27 << 16) | lvl; } // el canal 7 tiene ruido rosa
+    return (126 << 16) | 126;
+  };
+  for (let i = 0; i < ids.length; i += 24) {
+    const args = [];
+    for (const id of ids.slice(i, i + 24)) args.push(id, packed(id));
+    sock.send(osc.encode('/Meters/values', args), 9000, HOST);
+  }
+  if (subs.has(6)) sock.send(osc.encode('/Meters/values', [6, packed(6)]), 9000, HOST);
 }, 50);
+
 // Cada 2 s "alguien" toca la mesa: fader, mute y ganancia (trim) de algunos canales, como llegan de una mesa real.
 let k = 0;
 setInterval(() => {

@@ -157,13 +157,14 @@ Detalles:
 - **Configuración:** se guarda en `shure.json` en la carpeta de la app.
 - **Protocolo:** es el publicado por Shure (TCP, puerto 2202). La integración se ha probado con un emulador.
 
-### DiGiCo (experimental)
+### DiGiCo (Quantum y SD)
 
-DiGiCo no ofrece medidores en su OSC general. Este driver usa el protocolo de su app de iPad, descifrado solo en parte por la comunidad. Hay tres limitaciones importantes:
+Con una **Quantum** (probado con una `SD7Q-Q1`, conjunto de comandos `iPad_q1`) la app muestra los **medidores de los canales de entrada** y permite **controlar fader, ON y ganancia del previo** (de 0,5 en 0,5 dB). Los medidores se piden con `/Meters/request`, tal como los pide la app oficial de DiGiCo (descubierto capturando su tráfico). Limitaciones:
 
 - **La mesa solo acepta un dispositivo de tipo iPad a la vez.** Si el técnico está usando la app oficial de DiGiCo en un iPad, esta app no podrá conectarse, y viceversa.
-- La escala de los valores no está confirmada. Con `--digico-scale` puedes probar `linear`, `db` o `pos` (por defecto, `auto`).
-- De momento solo muestra los canales de entrada.
+- **La escala de los medidores no está calibrada.** El valor que envía la mesa se interpreta como −dB; compáralo con el medidor de la mesa.
+- De momento solo se ven y se controlan los canales de entrada (sin buses, matrices ni Main). La ganancia es la del previo analógico (`analog_gain`).
+- El control no se ha probado con una mesa real: antes de usarlo en un directo, con el sistema bajado, comprueba fader, ON (que no esté invertido) y ganancia.
 
 Configuración en la mesa:
 

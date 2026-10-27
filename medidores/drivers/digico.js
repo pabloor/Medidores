@@ -1,5 +1,13 @@
 // Driver EXPERIMENTAL para DiGiCo SD, Quantum y S21/S31.
 //
+// MEDIDORES (verificado capturando la app oficial de DiGiCo con una Quantum, conjunto de comandos iPad_q1):
+//   La app manda /Meters/clear y, por cada canal i (0, 1, 2…):
+//        /Meters/request/i  ,s  "/Input_Channels/<i+1>/Channel_Input/post_meter/left"
+//   La mesa responde con /Meters/values ,ii…  → pares (i, valor). El valor es un entero que empaqueta dos números de 16 bits:
+//        mitad alta = pico retenido, mitad baja = nivel actual, ambos en "−dB" (27 = −27 dB). 126 (0x7E) = silencio.
+//   La escala en dB no está calibrada contra un nivel de referencia: compárala con el medidor de la mesa.
+//
+// Protocolo anterior (suposición de la comunidad, que no funciona en una Quantum):
 // DiGiCo no publica medidores en su OSC general. Solo los envía por el protocolo de la app de iPad,
 // que la comunidad ha descifrado parcialmente (proyecto S21_HiJack). Lo que se sabe:
 //   - La app se registra en la mesa como dispositivo "DiGiCo Pad" (Setup > External Control).
@@ -71,7 +79,7 @@ class DiGiCo extends EventEmitter {
   }
 
   send(address, args = []) {
-    const key = address.replace(/\/\d+\//g, '/N/'); // los canales se agrupan: /Input_Channels/N/…
+    const key = address.replace(/\/\d+(?=\/|$)/g, '/N'); // los canales se agrupan: /Input_Channels/N/…
     this.tx.total++;
     this.tx.byAddress.set(key, (this.tx.byAddress.get(key) || 0) + 1);
     this.sock.send(osc.encode(address, args), this.sendPort, this.ip, (err) => {
@@ -183,7 +191,7 @@ class DiGiCo extends EventEmitter {
     this.send('/Meters/clear');
     for (let i = 1; i <= this.count; i++) {
       setTimeout(() => {
-        this.send(`/Input_Channels/${i}/Channel_Input/post_meter`, [i, 1]);
+        this.send(`/Meters/request/${i - 1}`, [`/Input_Channels/${i}/Channel_Input/post_meter/left`]);
         this.send(`/Input_Channels/${i}/Channel_Input/name/?`);
       }, 20 + i * 8); // espaciado: se sabe que las SD pierden ráfagas
     }
@@ -231,7 +239,7 @@ class DiGiCo extends EventEmitter {
       else this.meterProbe.other++;
     }
     if (um) {
-      const key = um.address.replace(/\/\d+\//g, '/N/');
+      const key = um.address.replace(/\/\d+(?=\/|$)/g, '/N');
       const e = this.rx.byAddress.get(key) || { n: 0, sample: '' };
       e.n++;
       if (!e.sample) e.sample = `(sin etiquetas) ${JSON.stringify(um.floats.map((f) => Math.round(f * 1000) / 1000))}`;
@@ -270,7 +278,7 @@ class DiGiCo extends EventEmitter {
           this.chVals.set(cv[2], per);
         }
       }
-      const key = m.address.replace(/\/\d+\//g, '/N/');
+      const key = m.address.replace(/\/\d+(?=\/|$)/g, '/N');
       const e = this.rx.byAddress.get(key) || { n: 0, sample: '' };
       e.n++;
       if (!e.sample) e.sample = JSON.stringify(m.args.map((a) => (Buffer.isBuffer(a) ? `<${a.length} bytes>` : a))).slice(0, 120);
@@ -301,15 +309,18 @@ class DiGiCo extends EventEmitter {
     return v > 0 ? 20 * Math.log10(v) : -90; // amplitud lineal, 1.0 = 0 dBFS
   }
 
+  // /Meters/values: pares (canal 0-based, valor). El valor empaqueta dos enteros de 16 bits: pico retenido (alta) y nivel (baja), en −dB.
   onMeters(args) {
     if (!this.count) return;
     this.lastRx = Date.now();
     this.raw = this.raw || { '/Meters/values': [] };
-    for (let i = 0; i + 1 < args.length; i += 2) {
-      const id = Number(args[i]), v = Number(args[i + 1]);
-      if (!Number.isFinite(id) || !Number.isFinite(v)) continue;
-      this.raw['/Meters/values'][id] = Math.round(v * 1000) / 1000;
-      if (id >= 1 && id <= this.count) this.values[id - 1] = Math.max(-90, Math.min(20, this.toDb(v)));
+    for (let k = 0; k + 1 < args.length; k += 2) {
+      const id = Number(args[k]), v = Number(args[k + 1]);
+      if (!Number.isInteger(id) || !Number.isFinite(v) || id < 0 || id >= this.count) continue;
+      const level = v & 0xffff;
+      const db = -level;
+      this.values[id] = Math.max(-90, Math.min(20, db));
+      this.raw['/Meters/values'][id] = db;
     }
     this.emit('levels', [this.values]);
     this.emit('raw', this.raw);

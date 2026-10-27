@@ -100,7 +100,8 @@ sub parse_packet {
             } else { $note = 'formato raro'; @args = (unpack('H*', substr($rest, 0, 24))); }
         }
     }
-    (my $tmpl = $addr) =~ s{/\d+(?=/|$)}{/N}g;
+    my $tmpl = $addr;
+    $tmpl =~ s{/\d+(?=/|$)}{/N}g unless $addr =~ m{^/Meters/}; # /Meters/request/7 conserva el número
     my $key = join("\t", $dir, $tmpl, $tags . ($note ? " [$note]" : ''));
     my $m = $msgs{$key} ||= { n => 0, sample => '' };
     $m->{n}++;
@@ -123,14 +124,14 @@ sub report {
     my %is = map { $_ => 1 } @meter;
     print "\nMENSAJES CON \"meter\" EN LA DIRECCIÓN:\n";
     print "  (ninguno)\n" unless @meter;
-    printf "  %6d x  %-10s %s  %s   ej: %s\n", $msgs{$_}{n}, (split /\t/, $_)[0], (split /\t/, $_)[1], (split /\t/, $_)[2], $msgs{$_}{sample} for @meter;
+    printf "  %6d x  %-10s %s  %s   ej: %s\n", $msgs{$_}{n}, (split /\t/, $_)[0], (split /\t/, $_)[1], (split /\t/, $_, -1)[2], $msgs{$_}{sample} for @meter;
     my @other = grep { !$is{$_} } @keys;
     my $max = 60;
     print "\nOTROS MENSAJES (los $max más frecuentes de " . scalar(@other) . "):\n";
     my $shown = 0;
     for my $k (@other) {
         last if $shown++ >= $max;
-        my ($d, $a, $t) = split /\t/, $k;
+        my ($d, $a, $t) = split /\t/, $k, -1;
         printf "  %6d x  %-10s %s  %s   ej: %s\n", $msgs{$k}{n}, $d, $a, $t, $msgs{$k}{sample};
     }
     print "=========================================\n";
