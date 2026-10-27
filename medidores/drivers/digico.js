@@ -89,6 +89,9 @@ class DiGiCo extends EventEmitter {
     }));
     this.sock.bind(this.listenPort, bindAddr, () => this.handshake());
     this.timers.push(setInterval(() => this.checkAlive(), 1000));
+    // La mesa solo manda un medidor cuando su valor cambia (con un tono fijo pasan muchos segundos sin mensajes). Se repite el
+    // último nivel para que la interfaz no lo dé por perdido (cae a -90 si pasa 1,5 s sin datos); si la mesa no contesta, se deja de repetir.
+    this.timers.push(setInterval(() => { if (this.count && this.meterSeen && Date.now() - this.lastAny < 10000) this.emitLevels(); }, 250));
     this.timers.push(setInterval(() => { if (this.sock && this.count) this.send('/Console/Name/?'); }, 2500)); // aviso de vida: la mesa contesta aunque nadie toque nada
   }
 
@@ -261,7 +264,7 @@ class DiGiCo extends EventEmitter {
         const myId = id, path = this.meterPath(g, i), name = this.namePath(g, i);
         setTimeout(() => {
           this.send(`/Meters/request/${myId}`, [path]);
-          this.send(`${name}/?`);
+          if (clear) this.send(`${name}/?`); // la renovación periódica (sin borrar) no vuelve a pedir los nombres
         }, 20 + (++slot) * 8); // espaciado: se sabe que las SD pierden ráfagas
       }
     }
@@ -518,7 +521,7 @@ class DiGiCo extends EventEmitter {
     const talking = now - this.lastAny < 10000;
     if (talking && this.subscribedAt && this.count) {
       // Renovar la suscripción (sin reiniciar nada): periódicamente y si la mesa contesta pero no manda medidores.
-      const metersQuiet = !this.meterSeen || now - this.lastRx > 10000;
+      const metersQuiet = !this.meterSeen; // con medidores ya vistos, un rato sin cambios es normal (tono fijo)
       if (metersQuiet && now - this.subscribedAt > 10000) this.subscribe(true);
       else if (now - this.subscribedAt > 30000) this.subscribe(true, false); // renovación periódica sin hueco
     }
