@@ -138,7 +138,7 @@ class DiGiCo extends EventEmitter {
 
   encodeControl() {
     const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: false, pair: -1 }));
-    return { caps: { gain: { min: -20, max: 60, step: 1 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: [], mtx: [] };
+    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: [], mtx: [] };
   }
 
   ctlUpdate(i, param, v) {
@@ -165,7 +165,7 @@ class DiGiCo extends EventEmitter {
     } else if (key === 'on') {
       addr = `/Input_Channels/${n}/mute`; arg = osc.float(value ? 0 : 1); out = !!value;
     } else if (key === 'gain' && c.gain != null) {
-      const db = Math.min(60, Math.max(-20, Math.round(Number(value))));
+      const db = Math.min(60, Math.max(-20, Math.round(Number(value) * 2) / 2)); // pasos de 0,5 dB
       addr = `/Input_Channels/${n}/Channel_Input/analog_gain`; arg = osc.float(db); out = db;
     } else return undefined;
     c[key] = out;
