@@ -14,20 +14,20 @@ sock.on('message', (b) => {
   const m = osc.decode(b);
   if (m.address === '/Console/Name/?') reply('/Console/Name', ['SD12 12345']);
   else if (m.address === '/Console/Input_Channels/?') reply('/Console/Input_Channels', [24]);
-  else if (m.address === '/Console/Channels/?') { reply('/Console/Aux_Outputs', [6]); reply('/Console/Group_Outputs', [6]); reply('/Console/Matrix_Outputs', [8]); } // la Quantum real dice cuántas salidas tiene
+  else if (m.address === '/Console/Channels/?') { reply('/Console/Aux_Outputs', [6]); reply('/Console/Group_Outputs', [6]); reply('/Console/Matrix_Outputs', [8]); reply('/Console/Control_Groups', [12]); } // la Quantum real dice cuántas salidas tiene
   else if (process.env.METERQ && /meter.*\/\?$/.test(m.address)) {
     // METERQ=1: contesta a la consulta de medidor con un OSC "sin etiquetas" (dirección + float), como DiGiCo
     const addr = Buffer.from(m.address.slice(0, -2) + '\0'); const pad = (x) => Buffer.concat([x, Buffer.alloc((4 - (x.length % 4)) % 4)]);
     const f = Buffer.alloc(4); f.writeFloatBE(Math.round((0.5 + 0.5 * Math.sin(Date.now() / 700)) * 100) / 100); // valor que cambia con el tiempo
     sock.send(Buffer.concat([pad(addr), f]), 9000, HOST);
   }
-  else if (/^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs)\/\d+\/(fader|mute|Channel_Input\/analog_gain)\/\?$/.test(m.address)) {
+  else if (/^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs|Control_Groups)\/\d+\/(fader|mute|Channel_Input\/analog_gain)\/\?$/.test(m.address)) {
     // consulta de un parámetro de control: responde con el valor guardado (o uno por defecto)
     const a = m.address.slice(0, -2);
     const v = ctl.has(a) ? ctl.get(a) : /fader$/.test(a) ? 0 : /mute$/.test(a) ? 0 : 20;
     reply(a, [osc.float(v)]);
   }
-  else if (/^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs)\/\d+\/(fader|mute|Channel_Input\/analog_gain)$/.test(m.address) && m.args.length) {
+  else if (/^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs|Control_Groups)\/\d+\/(fader|mute|Channel_Input\/analog_gain)$/.test(m.address) && m.args.length) {
     ctl.set(m.address, m.args[0]); console.log(`[set] ${m.address} = ${m.args[0]}`);
   }
   else if (m.address === '/Meters/clear') subs.clear();
@@ -38,6 +38,7 @@ sock.on('message', (b) => {
   else if (/^\/(Aux_Outputs|Group_Outputs|Matrix_Outputs)\/\d+\/Buss_Trim\/name\/\?$/.test(m.address)) {
     const [, kind, n] = m.address.split('/'); reply(m.address.slice(0, -2), [`${kind === 'Aux_Outputs' ? 'Aux' : kind === 'Group_Outputs' ? 'Grp' : 'Mtx'} ${n}`]);
   }
+  else if (/^\/Control_Groups\/\d+\/name\/\?$/.test(m.address)) reply(m.address.slice(0, -2), [`VCA ${m.address.split('/')[2]}`]);
   else if (m.address.endsWith('/name/?')) reply(m.address.slice(0, -2), [`Canal ${m.address.split('/')[2]}`]);
 });
 // Medidores como los envía la mesa real: /Meters/values con pares (id 0-based, entero con dos mitades de 16 bits:

@@ -47,7 +47,8 @@ class DiGiCo extends EventEmitter {
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
     this.rx = { total: 0, bundles: 0, bySource: new Map(), byAddress: new Map(), bad: [], last: 0 };
-    this.out = { aux: 0, grp: 0, mtx: 0 }; // salidas que dice tener la mesa
+    this.out = { aux: 0, grp: 0, mtx: 0, cg: 0 }; // salidas y grupos de control (VCA) que dice tener la mesa
+    this.vcaNames = {};
     this.busVals = []; this.mtxVals = []; this.outNames = { aux: {}, grp: {}, mtx: {} };
     this.cs = null;        // control: { ch, bus, mtx } con [{ fader, on, gain }] por tira
     this.ctlReady = false;
@@ -137,6 +138,7 @@ class DiGiCo extends EventEmitter {
   setOutCount(kind, n) {
     if (!Number.isInteger(n) || n < 0 || n > 64 || this.out[kind] === n) return;
     this.out[kind] = n;
+    if (kind === 'cg') { if (this.count) this.scheduleControl(); return; } // los VCA solo se controlan: no tienen medidor
     if (!this.count) return; // se aplicará al conocer los canales de entrada
     this.syncOutputs();
     this.emitLayout();
@@ -153,6 +155,7 @@ class DiGiCo extends EventEmitter {
   stripBase(g, i) {
     if (g === 'ch') return `/Input_Channels/${i + 1}`;
     if (g === 'mtx') return `/Matrix_Outputs/${i + 1}`;
+    if (g === 'vca') return `/Control_Groups/${i + 1}`; // grupos de control (VCA)
     return i < this.out.aux ? `/Aux_Outputs/${i + 1}` : `/Group_Outputs/${i - this.out.aux + 1}`;
   }
   meterPath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/post_meter/left` : `${this.stripBase(g, i)}/Buss_Trim/post_meter/left`; }
@@ -170,20 +173,21 @@ class DiGiCo extends EventEmitter {
   }
 
   initControl() {
-    const nb = this.nBus(), nm = this.out.mtx;
-    if (this.cs && this.cs.ch.length === this.count && this.cs.bus.length === nb && this.cs.mtx.length === nm) return; // el saludo se repite: no reiniciar el estado
+    const nb = this.nBus(), nm = this.out.mtx, nv = this.out.cg;
+    if (this.cs && this.cs.ch.length === this.count && this.cs.bus.length === nb && this.cs.mtx.length === nm && this.cs.vca.length === nv) return; // el saludo se repite: no reiniciar el estado
     clearTimeout(this.ctlTimer);
     this.ctlReady = false;
     const mk = (n) => Array.from({ length: n }, () => ({ fader: null, on: null, gain: null }));
-    this.cs = { ch: mk(this.count), bus: mk(nb), mtx: mk(nm) };
+    this.cs = { ch: mk(this.count), bus: mk(nb), mtx: mk(nm), vca: mk(nv) };
     let slot = 0;
-    for (const [g, n] of [['ch', this.count], ['bus', nb], ['mtx', nm]]) {
+    for (const [g, n] of [['ch', this.count], ['bus', nb], ['mtx', nm], ['vca', nv]]) {
       for (let i = 0; i < n; i++) {
         const base = this.stripBase(g, i);
         setTimeout(() => {
           this.send(`${base}/fader/?`);
           this.send(`${base}/mute/?`);
           if (g === 'ch') this.send(`${base}/Channel_Input/analog_gain/?`);
+          if (g === 'vca') this.send(`${base}/name/?`);
         }, 150 + (slot++) * 15);
       }
     }
@@ -193,7 +197,9 @@ class DiGiCo extends EventEmitter {
 
   encodeControl() {
     const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: false, pair: -1 }));
-    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: map(this.cs.bus), mtx: map(this.cs.mtx) };
+    // Los VCA llevan su número y nombre en la propia tira (no tienen medidor ni están en el layout de medidores).
+    const vca = this.cs.vca.map((c, i) => ({ fader: c.fader, on: c.on, gain: null, link: 0, stereo: false, pair: -1, num: `V${i + 1}`, name: this.vcaNames[i + 1] || '' }));
+    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: map(this.cs.bus), mtx: map(this.cs.mtx), vca };
   }
 
   ctlUpdate(g, i, param, v) {
@@ -314,11 +320,11 @@ class DiGiCo extends EventEmitter {
       return;
     }
     if (this.cs) {
-      const cm = /^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs)\/(\d+)\/(fader|mute|Channel_Input\/analog_gain)$/.exec(m.address);
+      const cm = /^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs|Control_Groups)\/(\d+)\/(fader|mute|Channel_Input\/analog_gain)$/.exec(m.address);
       if (cm && typeof m.args[0] === 'number') {
         const n = Number(cm[2]) - 1, param = cm[3] === 'fader' ? 'fader' : cm[3] === 'mute' ? 'mute' : 'gain';
         if (cm[1] === 'Input_Channels') this.ctlUpdate('ch', n, param, m.args[0]);
-        else if (param !== 'gain') this.ctlUpdate(cm[1] === 'Matrix_Outputs' ? 'mtx' : 'bus', cm[1] === 'Group_Outputs' ? this.out.aux + n : n, param, m.args[0]);
+        else if (param !== 'gain') this.ctlUpdate(cm[1] === 'Control_Groups' ? 'vca' : cm[1] === 'Matrix_Outputs' ? 'mtx' : 'bus', cm[1] === 'Group_Outputs' ? this.out.aux + n : n, param, m.args[0]);
       }
     }
     if (this.probeLog && this.probeLog.items.length < 8 && !/^\/Console\//.test(m.address) && !/\/name$/.test(m.address)) {
@@ -352,8 +358,15 @@ class DiGiCo extends EventEmitter {
     if ((m.address === '/Console/Input_Channels' || m.address === '/Console/Channels') && Number.isInteger(m.args[0])) {
       return this.setCount(m.args[0]);
     }
-    const oc = /^\/Console\/(Aux_Outputs|Group_Outputs|Matrix_Outputs)$/.exec(m.address);
-    if (oc && Number.isInteger(m.args[0])) return this.setOutCount(oc[1] === 'Aux_Outputs' ? 'aux' : oc[1] === 'Group_Outputs' ? 'grp' : 'mtx', m.args[0]);
+    const oc = /^\/Console\/(Aux_Outputs|Group_Outputs|Matrix_Outputs|Control_Groups)$/.exec(m.address);
+    if (oc && Number.isInteger(m.args[0])) return this.setOutCount(oc[1] === 'Aux_Outputs' ? 'aux' : oc[1] === 'Group_Outputs' ? 'grp' : oc[1] === 'Matrix_Outputs' ? 'mtx' : 'cg', m.args[0]);
+    const vn = /^\/Control_Groups\/(\d+)\/name$/.exec(m.address);
+    if (vn && typeof m.args[0] === 'string') {
+      this.vcaNames[vn[1]] = m.args[0];
+      clearTimeout(this.vcaNameTimer); // los nombres llegan de uno en uno: se vuelve a publicar el control cuando han llegado
+      this.vcaNameTimer = setTimeout(() => { if (this.ctlReady && this.cs) this.emit('control', this.encodeControl()); }, 400);
+      return;
+    }
     const on = /^\/(Aux_Outputs|Group_Outputs|Matrix_Outputs)\/(\d+)\/Buss_Trim\/name$/.exec(m.address);
     if (on && typeof m.args[0] === 'string') {
       this.outNames[on[1] === 'Aux_Outputs' ? 'aux' : on[1] === 'Group_Outputs' ? 'grp' : 'mtx'][on[2]] = m.args[0];
@@ -626,6 +639,7 @@ class DiGiCo extends EventEmitter {
     clearTimeout(this.retryStart);
     clearTimeout(this.ctlTimer);
     clearTimeout(this.flushTimer);
+    clearTimeout(this.vcaNameTimer);
     try { if (this.sock) this.sock.close(); } catch {}
   }
 }

@@ -507,7 +507,7 @@ function setStatus(s) {
 }
 // JSON no admite -Infinity: se envía como null en faders ("-inf").
 const encVal = (v) => (v === -Infinity ? '-inf' : v);
-const enc = (c) => ({ caps: c.caps, ch: c.ch.map(encStrip), main: c.main.map(encStrip), bus: (c.bus || []).map(encStrip), mtx: (c.mtx || []).map(encStrip) });
+const enc = (c) => ({ caps: c.caps, ch: c.ch.map(encStrip), main: c.main.map(encStrip), bus: (c.bus || []).map(encStrip), mtx: (c.mtx || []).map(encStrip), vca: (c.vca || []).map(encStrip) });
 const encStrip = (s) => ({ ...s, fader: encVal(s.fader) });
 const meterPointMsg = () => ({ type: 'meter-point', value: prefs.meterPoint, supported: !!(driver && typeof driver.setMeterPoint === 'function') });
 const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'meter-point', 'history-clear', 'clip-log-clear']);
@@ -643,7 +643,7 @@ wss.on('connection', (ws, req) => {
     }
     if (msg.type === 'set' && driver && typeof driver.set === 'function' && state.control) {
       const { g, i, key } = msg;
-      if (!['ch', 'main', 'bus', 'mtx'].includes(g) || !Number.isInteger(i) || !['fader', 'on', 'gain'].includes(key)) return;
+      if (!['ch', 'main', 'bus', 'mtx', 'vca'].includes(g) || !Number.isInteger(i) || !['fader', 'on', 'gain'].includes(key)) return;
       if (key === 'gain' && g !== 'ch') return; // Mix, Matrices y Stereo no tienen previo
       let value = msg.value === '-inf' ? -Infinity : msg.value;
       if (key === 'on') value = !!value;

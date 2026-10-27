@@ -26,6 +26,7 @@
     --g-ch: #72c2dc;
     --g-bus: #b39af3;
     --g-mtx: #e49fc6;
+    --g-vca: #6fd6c5;
     --g-fx: #8fd6a8;
     --g-main: #e7eaf1;
     --strip: 34px;
@@ -46,6 +47,7 @@
     --g-ch: #1d7fa3;
     --g-bus: #6a4fcf;
     --g-mtx: #b0417f;
+    --g-vca: #17877a;
     --g-fx: #2d8a54;
     --g-main: #121722;
   }
@@ -400,6 +402,7 @@
   .cs.g-ch { border-top-color: var(--g-ch); }
   .cs.g-bus { border-top-color: var(--g-bus); }
   .cs.g-mtx { border-top-color: var(--g-mtx); }
+  .cs.g-vca { border-top-color: var(--g-vca); }
   .cs[hidden] { display: none; }
   .custom-empty { align-self: center; color: var(--muted); font-size: 16px; padding: 20px; max-width: 32ch; line-height: 1.4; }
   #customDlg { width: min(560px, 94vw); max-height: 90vh; }
@@ -1118,11 +1121,11 @@
   let faderLimit = store.get('limit', 0);
   let autolock = store.get('autolock', true);
 
-  const CTRL_GROUPS = ['ch', 'bus', 'mtx']; // grupos que van en la lista desplazable; 'main' va fijo a la derecha
+  const CTRL_GROUPS = ['ch', 'bus', 'mtx', 'vca']; // grupos que van en la lista desplazable ('vca' = grupos de control, solo si la mesa los da); 'main' va fijo a la derecha
   function buildControl(m) {
     const conv = (arr) => (arr || []).map((c) => ({ ...c, fader: fromWire(c.fader) }));
-    ctrl = { caps: m.caps, ch: conv(m.ch), main: conv(m.main), bus: conv(m.bus), mtx: conv(m.mtx) };
-    const key = `${ctrl.ch.length}/${ctrl.bus.length}/${ctrl.mtx.length}/${ctrl.main.length}/${!!ctrl.caps.gain}`;
+    ctrl = { caps: m.caps, ch: conv(m.ch), main: conv(m.main), bus: conv(m.bus), mtx: conv(m.mtx), vca: conv(m.vca) };
+    const key = `${ctrl.ch.length}/${ctrl.bus.length}/${ctrl.mtx.length}/${ctrl.vca.length}/${ctrl.main.length}/${!!ctrl.caps.gain}`;
     if (key !== ctrlKey) {
       ctrlKey = key;
       cstrips = [];
@@ -1428,8 +1431,9 @@
     const grp = (id) => lastLayout && lastLayout.groups.find((g) => g.id === id);
     for (const cs of cstrips) {
       if (cs.g !== 'main') {
-        const s = grp(cs.g) && grp(cs.g).strips[cs.i];
-        cs.num.textContent = cs.g === 'ch' ? String(cs.i + 1) : (s && s.num) || `${cs.g === 'bus' ? 'MX' : 'MT'}${cs.i + 1}`;
+        // Los VCA (grupos de control) traen su número y nombre en la propia tira; el resto, del layout.
+        const s = cs.g === 'vca' ? data(cs) : grp(cs.g) && grp(cs.g).strips[cs.i];
+        cs.num.textContent = cs.g === 'ch' ? String(cs.i + 1) : (s && s.num) || `${cs.g === 'bus' ? 'MX' : cs.g === 'vca' ? 'V' : 'MT'}${cs.i + 1}`;
         cs.name.textContent = (s && s.name) || '';
       } else {
         cs.num.textContent = 'ST';
