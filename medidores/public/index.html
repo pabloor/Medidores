@@ -1241,10 +1241,10 @@
     const nav = $('layers');
     nav.innerHTML = availableLayers().map((g) => `<button data-layer="${g}">${esc(g === 'custom' ? t('ly.custom') : layerName(g))}</button>`).join('')
       + `<button class="edit" id="editCustom" aria-label="${esc(t('ly.edit'))}" title="${esc(t('ly.edit'))}">✎</button>`
-      + `<span class="sep"></span><button class="stereo" id="toggleStereo" title="${esc(t('ly.showStereo'))}">${esc(ctrl.main.length === 2 ? t('main.one') + ' A/B' : t('main.one'))}</button>`;
+      + (ctrl.main.length ? `<span class="sep"></span><button class="stereo" id="toggleStereo" title="${esc(t('ly.showStereo'))}">${esc(ctrl.main.length === 2 ? t('main.one') + ' A/B' : t('main.one'))}</button>` : ''); // sin Main (p. ej. DiGiCo) no hay botón
     nav.querySelectorAll('[data-layer]').forEach((b) => b.onclick = () => { store.set('ctlLayer', b.dataset.layer); applyLayer(); });
     $('editCustom').onclick = openCustom;
-    $('toggleStereo').onclick = () => { store.set('ctlStereo', !store.get('ctlStereo', true)); applyLayer(); };
+    if ($('toggleStereo')) $('toggleStereo').onclick = () => { store.set('ctlStereo', !store.get('ctlStereo', true)); applyLayer(); };
   }
   function customList() {
     const valid = new Set(cstrips.map(csKey));
@@ -1277,7 +1277,7 @@
     }
     pin.hidden = !showStereo || !pin.querySelector('.cs');
     $('layers').querySelectorAll('[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.layer === layer)));
-    $('toggleStereo').setAttribute('aria-pressed', String(showStereo));
+    if ($('toggleStereo')) $('toggleStereo').setAttribute('aria-pressed', String(showStereo));
     sc.scrollLeft = 0;
     requestAnimationFrame(() => cstrips.forEach((cs) => { if (!cs.el.hidden) renderStrip(cs); }));
   }

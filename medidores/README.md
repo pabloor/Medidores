@@ -163,8 +163,8 @@ Con una **Quantum** (probado con una `SD7Q-Q1`, conjunto de comandos `iPad_q1`) 
 
 - **La mesa solo acepta un dispositivo de tipo iPad a la vez.** Si el técnico está usando la app oficial de DiGiCo en un iPad, esta app no podrá conectarse, y viceversa.
 - **La escala de los medidores no está calibrada.** El valor que envía la mesa se interpreta como −dB; compáralo con el medidor de la mesa.
-- De momento solo se ven y se controlan los canales de entrada (sin buses, matrices ni Main). La ganancia es la del previo analógico (`analog_gain`).
-- El control no se ha probado con una mesa real: antes de usarlo en un directo, con el sistema bajado, comprueba fader, ON (que no esté invertido) y ganancia.
+- Además de los 48 canales de entrada se ven y se controlan (fader y ON) las **salidas**: las auxiliares y los grupos juntos, como «Buses» (A1–A6 y G1–G6 en una Quantum), y las **matrices** de salida. En las DiGiCo el master es un grupo, así que no hay un «Main» aparte. Los medidores de las salidas se piden igual que los de los canales (según la tabla de comandos de la comunidad; sin verificar con una mesa real). La ganancia es la del previo analógico (`analog_gain`) y solo existe en las entradas. Faltan los grupos de control (VCA).
+- El control de las salidas no se ha probado con una mesa real: antes de usarlo en un directo, con el sistema bajado, comprueba fader, ON (que no esté invertido) y, en las entradas, la ganancia.
 
 Configuración en la mesa:
 

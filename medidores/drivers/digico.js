@@ -44,7 +44,9 @@ class DiGiCo extends EventEmitter {
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
     this.rx = { total: 0, bundles: 0, bySource: new Map(), byAddress: new Map(), bad: [], last: 0 };
-    this.cs = null;        // control de los canales de entrada: { ch: [{ fader, on, gain }] }
+    this.out = { aux: 0, grp: 0, mtx: 0 }; // salidas que dice tener la mesa
+    this.busVals = []; this.mtxVals = []; this.outNames = { aux: {}, grp: {}, mtx: {} };
+    this.cs = null;        // control: { ch, bus, mtx } con [{ fader, on, gain }] por tira
     this.ctlReady = false;
     this.pendSets = new Map();
     this.chVals = new Map(); // parámetro -> Map(canal -> { v, tags, t, n }): último valor que la mesa ha enviado de cada canal
@@ -121,39 +123,78 @@ class DiGiCo extends EventEmitter {
     if (!n || n === this.count) return;
     this.count = Math.min(n, 256);
     this.values = new Array(this.count).fill(-90);
+    this.syncOutputs();
     this.emitLayout();
     this.subscribe();
-    this.initControl();
+    this.scheduleControl();
   }
 
-  // ---- Control de canales de entrada: fader (dB), ON (= no mute) y ganancia del previo (analog_gain, dB).
+  // ---- Salidas: la mesa dice cuántas auxiliares, grupos y matrices tiene (/Console/Aux_Outputs, Group_Outputs, Matrix_Outputs).
+  // En el control se agrupan así: "bus" = auxiliares + grupos (en las DiGiCo el master es un grupo), "mtx" = matrices de salida.
+  setOutCount(kind, n) {
+    if (!Number.isInteger(n) || n < 0 || n > 64 || this.out[kind] === n) return;
+    this.out[kind] = n;
+    if (!this.count) return; // se aplicará al conocer los canales de entrada
+    this.syncOutputs();
+    this.emitLayout();
+    this.subscribe(true);
+    this.scheduleControl();
+  }
+  nBus() { return this.out.aux + this.out.grp; }
+  syncOutputs() {
+    const fit = (arr, n) => { const out = new Array(n).fill(-90); for (let i = 0; i < Math.min(n, arr.length); i++) out[i] = arr[i]; return out; };
+    this.busVals = fit(this.busVals, this.nBus());
+    this.mtxVals = fit(this.mtxVals, this.out.mtx);
+  }
+  // Ruta base de una tira: /Input_Channels/N, /Aux_Outputs/N, /Group_Outputs/N o /Matrix_Outputs/N.
+  stripBase(g, i) {
+    if (g === 'ch') return `/Input_Channels/${i + 1}`;
+    if (g === 'mtx') return `/Matrix_Outputs/${i + 1}`;
+    return i < this.out.aux ? `/Aux_Outputs/${i + 1}` : `/Group_Outputs/${i - this.out.aux + 1}`;
+  }
+  meterPath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/post_meter/left` : `${this.stripBase(g, i)}/Buss_Trim/post_meter/left`; }
+  namePath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/name` : `${this.stripBase(g, i)}/Buss_Trim/name`; }
+
+  // ---- Control: fader (dB), ON (= no mute) y, en las entradas, ganancia del previo (analog_gain, dB).
   // Escalas según la documentación de la comunidad y las respuestas de una Quantum:
-  //   /Input_Channels/N/fader                      float dB, -150 (−∞) … +10
-  //   /Input_Channels/N/mute                       float 0/1 (1 = silenciado)
+  //   <tira>/fader                                 float dB, -150 (−∞) … +10
+  //   <tira>/mute                                  float 0/1 (1 = silenciado)
   //   /Input_Channels/N/Channel_Input/analog_gain  float dB, -20 … +60
+  // Entradas verificadas con una Quantum; buses (auxiliares y grupos) y matrices siguen el mismo esquema según la tabla de comandos.
+  scheduleControl() {
+    clearTimeout(this.ctlInitTimer);
+    this.ctlInitTimer = setTimeout(() => this.initControl(), 400); // deja que lleguen los números de salidas antes de pedir el estado
+  }
+
   initControl() {
-    if (this.cs && this.cs.ch.length === this.count) return; // el saludo se repite: no reiniciar el estado
+    const nb = this.nBus(), nm = this.out.mtx;
+    if (this.cs && this.cs.ch.length === this.count && this.cs.bus.length === nb && this.cs.mtx.length === nm) return; // el saludo se repite: no reiniciar el estado
     clearTimeout(this.ctlTimer);
     this.ctlReady = false;
-    this.cs = { ch: Array.from({ length: this.count }, () => ({ fader: null, on: null, gain: null })) };
-    for (let i = 1; i <= this.count; i++) {
-      setTimeout(() => {
-        this.send(`/Input_Channels/${i}/fader/?`);
-        this.send(`/Input_Channels/${i}/mute/?`);
-        this.send(`/Input_Channels/${i}/Channel_Input/analog_gain/?`);
-      }, 150 + i * 15);
+    const mk = (n) => Array.from({ length: n }, () => ({ fader: null, on: null, gain: null }));
+    this.cs = { ch: mk(this.count), bus: mk(nb), mtx: mk(nm) };
+    let slot = 0;
+    for (const [g, n] of [['ch', this.count], ['bus', nb], ['mtx', nm]]) {
+      for (let i = 0; i < n; i++) {
+        const base = this.stripBase(g, i);
+        setTimeout(() => {
+          this.send(`${base}/fader/?`);
+          this.send(`${base}/mute/?`);
+          if (g === 'ch') this.send(`${base}/Channel_Input/analog_gain/?`);
+        }, 150 + (slot++) * 15);
+      }
     }
     // Se publica lo que haya contestado la mesa; lo que falte llega después como cambios sueltos.
-    this.ctlTimer = setTimeout(() => { this.ctlReady = true; this.emit('control', this.encodeControl()); }, 150 + this.count * 15 + 1500);
+    this.ctlTimer = setTimeout(() => { this.ctlReady = true; this.emit('control', this.encodeControl()); }, 150 + slot * 15 + 1500);
   }
 
   encodeControl() {
     const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: false, pair: -1 }));
-    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: [], mtx: [] };
+    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: map(this.cs.bus), mtx: map(this.cs.mtx) };
   }
 
-  ctlUpdate(i, param, v) {
-    const c = this.cs && this.cs.ch[i];
+  ctlUpdate(g, i, param, v) {
+    const c = this.cs && this.cs[g] && this.cs[g][i];
     if (!c) return;
     let key, val;
     if (param === 'fader') { key = 'fader'; val = v <= -90 ? -Infinity : Math.round(v * 10) / 10; }
@@ -161,23 +202,23 @@ class DiGiCo extends EventEmitter {
     else { key = 'gain'; val = Math.round(v * 10) / 10; }
     if (c[key] === val) return;
     c[key] = val;
-    if (this.ctlReady) this.emit('param', { g: 'ch', i, key, value: val });
+    if (this.ctlReady) this.emit('param', { g, i, key, value: val });
   }
 
   // Petición desde la app. Devuelve el valor ya ajustado o undefined si no se puede.
   set(g, i, key, value) {
-    const c = g === 'ch' && this.cs && this.ctlReady && this.cs.ch[i];
+    const c = this.cs && this.ctlReady && this.cs[g] && this.cs[g][i];
     if (!c) return undefined;
-    const n = i + 1;
+    const base = this.stripBase(g, i);
     let addr, arg, out;
     if (key === 'fader') {
       const db = value === -Infinity || value == null || value <= -90 ? -150 : Math.min(10, Math.max(-150, Number(value)));
-      addr = `/Input_Channels/${n}/fader`; arg = osc.float(db); out = db <= -90 ? -Infinity : Math.round(db * 10) / 10;
+      addr = `${base}/fader`; arg = osc.float(db); out = db <= -90 ? -Infinity : Math.round(db * 10) / 10;
     } else if (key === 'on') {
-      addr = `/Input_Channels/${n}/mute`; arg = osc.float(value ? 0 : 1); out = !!value;
-    } else if (key === 'gain' && c.gain != null) {
+      addr = `${base}/mute`; arg = osc.float(value ? 0 : 1); out = !!value;
+    } else if (key === 'gain' && g === 'ch' && c.gain != null) {
       const db = Math.min(60, Math.max(-20, Math.round(Number(value) * 2) / 2)); // pasos de 0,5 dB
-      addr = `/Input_Channels/${n}/Channel_Input/analog_gain`; arg = osc.float(db); out = db;
+      addr = `${base}/Channel_Input/analog_gain`; arg = osc.float(db); out = db;
     } else return undefined;
     c[key] = out;
     // Se agrupan los movimientos: como mucho un envío cada 40 ms por parámetro.
@@ -191,14 +232,19 @@ class DiGiCo extends EventEmitter {
   }
 
   // refresh = true: renueva la suscripción sin tocar el estado (niveles, canales, "medidores vistos").
+  // Los medidores se piden con un número (id) por tira: 0..canales-1 las entradas, luego los buses y luego las matrices.
   subscribe(refresh = false) {
     if (refresh) this.resubs++; else this.meterSeen = false;
     this.send('/Meters/clear');
-    for (let i = 1; i <= this.count; i++) {
-      setTimeout(() => {
-        this.send(`/Meters/request/${i - 1}`, [`/Input_Channels/${i}/Channel_Input/post_meter/left`]);
-        this.send(`/Input_Channels/${i}/Channel_Input/name/?`);
-      }, 20 + i * 8); // espaciado: se sabe que las SD pierden ráfagas
+    let id = 0, slot = 0;
+    for (const [g, n] of [['ch', this.count], ['bus', this.nBus()], ['mtx', this.out.mtx]]) {
+      for (let i = 0; i < n; i++, id++) {
+        const myId = id, path = this.meterPath(g, i), name = this.namePath(g, i);
+        setTimeout(() => {
+          this.send(`/Meters/request/${myId}`, [path]);
+          this.send(`${name}/?`);
+        }, 20 + (++slot) * 8); // espaciado: se sabe que las SD pierden ráfagas
+      }
     }
     this.subscribedAt = Date.now();
   }
@@ -254,7 +300,7 @@ class DiGiCo extends EventEmitter {
       const cm = /^\/Input_Channels\/(\d+)\/.*(post|pre)_meter$/i.exec(um.address);
       if (cm && this.count && um.floats.length) {
         const i = Number(cm[1]);
-        if (i >= 1 && i <= this.count) { this.lastRx = Date.now(); this.values[i - 1] = Math.max(-90, Math.min(20, this.toDb(um.floats[0]))); this.emit('levels', [this.values]); }
+        if (i >= 1 && i <= this.count) { this.lastRx = Date.now(); this.values[i - 1] = Math.max(-90, Math.min(20, this.toDb(um.floats[0]))); this.emitLevels(); }
       }
       return;
     }
@@ -265,8 +311,12 @@ class DiGiCo extends EventEmitter {
       return;
     }
     if (this.cs) {
-      const cm = /^\/Input_Channels\/(\d+)\/(fader|mute|Channel_Input\/analog_gain)$/.exec(m.address);
-      if (cm && typeof m.args[0] === 'number') this.ctlUpdate(Number(cm[1]) - 1, cm[2] === 'fader' ? 'fader' : cm[2] === 'mute' ? 'mute' : 'gain', m.args[0]);
+      const cm = /^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs)\/(\d+)\/(fader|mute|Channel_Input\/analog_gain)$/.exec(m.address);
+      if (cm && typeof m.args[0] === 'number') {
+        const n = Number(cm[2]) - 1, param = cm[3] === 'fader' ? 'fader' : cm[3] === 'mute' ? 'mute' : 'gain';
+        if (cm[1] === 'Input_Channels') this.ctlUpdate('ch', n, param, m.args[0]);
+        else if (param !== 'gain') this.ctlUpdate(cm[1] === 'Matrix_Outputs' ? 'mtx' : 'bus', cm[1] === 'Group_Outputs' ? this.out.aux + n : n, param, m.args[0]);
+      }
     }
     if (this.probeLog && this.probeLog.items.length < 8 && !/^\/Console\//.test(m.address) && !/\/name$/.test(m.address)) {
       this.probeLog.items.push(`${m.address} ,${m.tags} ${JSON.stringify(m.args.map((a) => (Buffer.isBuffer(a) ? `<${a.length} bytes>` : a))).slice(0, 100)}`);
@@ -299,6 +349,15 @@ class DiGiCo extends EventEmitter {
     if ((m.address === '/Console/Input_Channels' || m.address === '/Console/Channels') && Number.isInteger(m.args[0])) {
       return this.setCount(m.args[0]);
     }
+    const oc = /^\/Console\/(Aux_Outputs|Group_Outputs|Matrix_Outputs)$/.exec(m.address);
+    if (oc && Number.isInteger(m.args[0])) return this.setOutCount(oc[1] === 'Aux_Outputs' ? 'aux' : oc[1] === 'Group_Outputs' ? 'grp' : 'mtx', m.args[0]);
+    const on = /^\/(Aux_Outputs|Group_Outputs|Matrix_Outputs)\/(\d+)\/Buss_Trim\/name$/.exec(m.address);
+    if (on && typeof m.args[0] === 'string') {
+      this.outNames[on[1] === 'Aux_Outputs' ? 'aux' : on[1] === 'Group_Outputs' ? 'grp' : 'mtx'][on[2]] = m.args[0];
+      clearTimeout(this.layoutTimer);
+      this.layoutTimer = setTimeout(() => this.emitLayout(), 300);
+      return;
+    }
     const nm = m.address.match(/^\/Input_Channels\/(\d+)\/Channel_Input\/name$/);
     if (nm && typeof m.args[0] === 'string') {
       this.names[nm[1]] = m.args[0];
@@ -314,33 +373,63 @@ class DiGiCo extends EventEmitter {
     return v > 0 ? 20 * Math.log10(v) : -90; // amplitud lineal, 1.0 = 0 dBFS
   }
 
-  // /Meters/values: pares (canal 0-based, valor). El valor empaqueta dos enteros de 16 bits: pico retenido (alta) y nivel (baja), en −dB.
+  // /Meters/values: pares (tira 0-based, valor). El valor empaqueta dos enteros de 16 bits: pico retenido (alta) y nivel (baja), en −dB.
+  // Numeración de las tiras: entradas, luego buses (auxiliares y grupos), luego matrices.
   onMeters(args) {
     if (!this.count) return;
     this.lastRx = Date.now();
     this.meterSeen = true;
     this.raw = this.raw || { '/Meters/values': [] };
+    const nb = this.nBus(), nm = this.out.mtx;
     for (let k = 0; k + 1 < args.length; k += 2) {
       const id = Number(args[k]), v = Number(args[k + 1]);
-      if (!Number.isInteger(id) || !Number.isFinite(v) || id < 0 || id >= this.count) continue;
-      const level = v & 0xffff;
-      const db = -level;
-      this.values[id] = Math.max(-90, Math.min(20, db));
+      if (!Number.isInteger(id) || !Number.isFinite(v) || id < 0) continue;
+      const db = -(v & 0xffff);
+      const val = Math.max(-90, Math.min(20, db));
+      if (id < this.count) this.values[id] = val;
+      else if (id < this.count + nb) this.busVals[id - this.count] = val;
+      else if (id < this.count + nb + nm) this.mtxVals[id - this.count - nb] = val;
+      else continue;
       this.raw['/Meters/values'][id] = db;
     }
-    this.emit('levels', [this.values]);
+    this.emitLevels();
     this.emit('raw', this.raw);
+  }
+
+  // Un grupo de niveles por cada grupo del layout: entradas, buses (si hay) y matrices (si hay).
+  emitLevels() {
+    const out = [this.values];
+    if (this.nBus()) out.push(this.busVals);
+    if (this.out.mtx) out.push(this.mtxVals);
+    this.emit('levels', out);
   }
 
   emitLayout() {
     if (!this.count) return;
+    const groups = [{
+      id: 'ch',
+      name: 'Canales',
+      strips: Array.from({ length: this.count }, (_, k) => ({ num: `${k + 1}`, name: this.names[k + 1] || '' })),
+    }];
+    if (this.nBus()) {
+      groups.push({
+        id: 'bus',
+        name: 'Buses',
+        strips: Array.from({ length: this.nBus() }, (_, k) => (k < this.out.aux
+          ? { num: `A${k + 1}`, name: this.outNames.aux[k + 1] || '' }
+          : { num: `G${k - this.out.aux + 1}`, name: this.outNames.grp[k - this.out.aux + 1] || '' })),
+      });
+    }
+    if (this.out.mtx) {
+      groups.push({
+        id: 'mtx',
+        name: 'Matrices',
+        strips: Array.from({ length: this.out.mtx }, (_, k) => ({ num: `M${k + 1}`, name: this.outNames.mtx[k + 1] || '' })),
+      });
+    }
     this.emit('layout', {
       mixer: { name: this.consoleName ? `DiGiCo ${this.consoleName}` : 'DiGiCo', model: this.consoleName || 'DiGiCo', ip: this.ip },
-      groups: [{
-        id: 'ch',
-        name: 'Canales',
-        strips: Array.from({ length: this.count }, (_, k) => ({ num: `${k + 1}`, name: this.names[k + 1] || '' })),
-      }],
+      groups,
     });
   }
 
