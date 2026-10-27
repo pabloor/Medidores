@@ -405,7 +405,7 @@ class DiGiCo extends EventEmitter {
       const lo = v & 0xffff, hi = (v >>> 16) & 0xffff;
       this.lastPacked[id] = { hi, lo, t: Date.now() };
       if (this.series) this.series.ids.add(id);
-      if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo]);
+      if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo, v]);
       const m = this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
       const db = -m;
       const val = Math.max(-90, Math.min(20, db));
@@ -443,9 +443,10 @@ class DiGiCo extends EventEmitter {
     out.push(`Mitad alta: ${stat(rows.map((r) => r[1]))}`);
     out.push(`Mitad baja: ${stat(rows.map((r) => r[2]))}`);
     out.push(`Alta menor que baja (= más fuerte): ${rows.filter((r) => r[1] < r[2]).length} | iguales: ${rows.filter((r) => r[1] === r[2]).length} | alta mayor: ${rows.filter((r) => r[1] > r[2]).length}`);
-    out.push('', 'tiempo   alta  baja');
+    out.push(`Valores enteros distintos recibidos (en hexadecimal): ${[...new Set(rows.map((r) => r[3]))].slice(0, 12).map((x) => (x >>> 0).toString(16)).join(' ')}`);
+    out.push('', 'tiempo   alta  baja   entero');
     const step = Math.max(1, Math.ceil(rows.length / 140));
-    for (let k = 0; k < rows.length; k += step) out.push(`${String(rows[k][0]).padStart(6)}  ${String(rows[k][1]).padStart(4)}  ${String(rows[k][2]).padStart(4)}`);
+    for (let k = 0; k < rows.length; k += step) out.push(`${String(rows[k][0]).padStart(6)}  ${String(rows[k][1]).padStart(4)}  ${String(rows[k][2]).padStart(4)}  ${(rows[k][3] >>> 0).toString(16)}`);
     return out.join('\n');
   }
 
