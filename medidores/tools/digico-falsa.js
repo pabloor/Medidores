@@ -4,8 +4,10 @@ const dgram = require('dgram');
 const osc = require('../drivers/osc');
 const sock = dgram.createSocket('udp4');
 const subs = new Set();
+const ctl = new Map(); // valores de control (fader, mute, ganancia) que ha fijado la app
 const HOST = process.env.HOST || '127.0.0.1'; // HOST=192.0.2.2 para probar con una IP de la red
-const reply = (a, args) => sock.send(osc.encode(a, args), 9000, HOST);
+const bundle = (msg) => { const h = Buffer.alloc(16); h.write('#bundle\0', 0, 'ascii'); h.writeUInt32BE(0, 8); h.writeUInt32BE(1, 12); const s = Buffer.alloc(4); s.writeUInt32BE(msg.length); return Buffer.concat([h, s, msg]); };
+const reply = (a, args) => { const m = osc.encode(a, args); sock.send(process.env.BUNDLE ? bundle(m) : m, 9000, HOST); }; // BUNDLE=1: como con "Bundles" activado en la mesa
 sock.on('message', (b) => {
   const m = osc.decode(b);
   if (m.address === '/Console/Name/?') reply('/Console/Name', ['SD12 12345']);
@@ -15,6 +17,15 @@ sock.on('message', (b) => {
     const addr = Buffer.from(m.address.slice(0, -2) + '\0'); const pad = (x) => Buffer.concat([x, Buffer.alloc((4 - (x.length % 4)) % 4)]);
     const f = Buffer.alloc(4); f.writeFloatBE(Math.round((0.5 + 0.5 * Math.sin(Date.now() / 700)) * 100) / 100); // valor que cambia con el tiempo
     sock.send(Buffer.concat([pad(addr), f]), 9000, HOST);
+  }
+  else if (/^\/Input_Channels\/\d+\/(fader|mute|Channel_Input\/analog_gain)\/\?$/.test(m.address)) {
+    // consulta de un parámetro de control: responde con el valor guardado (o uno por defecto)
+    const a = m.address.slice(0, -2);
+    const v = ctl.has(a) ? ctl.get(a) : /fader$/.test(a) ? 0 : /mute$/.test(a) ? 0 : 20;
+    reply(a, [osc.float(v)]);
+  }
+  else if (/^\/Input_Channels\/\d+\/(fader|mute|Channel_Input\/analog_gain)$/.test(m.address) && m.args.length) {
+    ctl.set(m.address, m.args[0]); console.log(`[set] ${m.address} = ${m.args[0]}`);
   }
   else if (m.address === '/Meters/clear') subs.clear();
   else if (m.address.endsWith('/post_meter')) { if (!process.env.NOMETERS) subs.add(m.args[0]); } // NOMETERS=1: no manda medidores, como la mesa de un usuario

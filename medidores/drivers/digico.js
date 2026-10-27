@@ -33,7 +33,10 @@ class DiGiCo extends EventEmitter {
     // Diagnóstico: qué se ha enviado a la mesa y qué ha llegado (se consulta en /diagnostico).
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
-    this.rx = { total: 0, bySource: new Map(), byAddress: new Map(), bad: [], last: 0 };
+    this.rx = { total: 0, bundles: 0, bySource: new Map(), byAddress: new Map(), bad: [], last: 0 };
+    this.cs = null;        // control de los canales de entrada: { ch: [{ fader, on, gain }] }
+    this.ctlReady = false;
+    this.pendSets = new Map();
     this.chVals = new Map(); // parámetro -> Map(canal -> { v, tags, t, n }): último valor que la mesa ha enviado de cada canal
   }
 
@@ -109,6 +112,71 @@ class DiGiCo extends EventEmitter {
     this.values = new Array(this.count).fill(-90);
     this.emitLayout();
     this.subscribe();
+    this.initControl();
+  }
+
+  // ---- Control de canales de entrada: fader (dB), ON (= no mute) y ganancia del previo (analog_gain, dB).
+  // Escalas según la documentación de la comunidad y las respuestas de una Quantum:
+  //   /Input_Channels/N/fader                      float dB, -150 (−∞) … +10
+  //   /Input_Channels/N/mute                       float 0/1 (1 = silenciado)
+  //   /Input_Channels/N/Channel_Input/analog_gain  float dB, -20 … +60
+  initControl() {
+    if (this.cs && this.cs.ch.length === this.count) return; // el saludo se repite: no reiniciar el estado
+    clearTimeout(this.ctlTimer);
+    this.ctlReady = false;
+    this.cs = { ch: Array.from({ length: this.count }, () => ({ fader: null, on: null, gain: null })) };
+    for (let i = 1; i <= this.count; i++) {
+      setTimeout(() => {
+        this.send(`/Input_Channels/${i}/fader/?`);
+        this.send(`/Input_Channels/${i}/mute/?`);
+        this.send(`/Input_Channels/${i}/Channel_Input/analog_gain/?`);
+      }, 150 + i * 15);
+    }
+    // Se publica lo que haya contestado la mesa; lo que falte llega después como cambios sueltos.
+    this.ctlTimer = setTimeout(() => { this.ctlReady = true; this.emit('control', this.encodeControl()); }, 150 + this.count * 15 + 1500);
+  }
+
+  encodeControl() {
+    const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: false, pair: -1 }));
+    return { caps: { gain: { min: -20, max: 60, step: 1 }, faderMax: 10, mainNames: ['Stereo'] }, ch: map(this.cs.ch), main: [], bus: [], mtx: [] };
+  }
+
+  ctlUpdate(i, param, v) {
+    const c = this.cs && this.cs.ch[i];
+    if (!c) return;
+    let key, val;
+    if (param === 'fader') { key = 'fader'; val = v <= -90 ? -Infinity : Math.round(v * 10) / 10; }
+    else if (param === 'mute') { key = 'on'; val = v < 0.5; }
+    else { key = 'gain'; val = Math.round(v * 10) / 10; }
+    if (c[key] === val) return;
+    c[key] = val;
+    if (this.ctlReady) this.emit('param', { g: 'ch', i, key, value: val });
+  }
+
+  // Petición desde la app. Devuelve el valor ya ajustado o undefined si no se puede.
+  set(g, i, key, value) {
+    const c = g === 'ch' && this.cs && this.ctlReady && this.cs.ch[i];
+    if (!c) return undefined;
+    const n = i + 1;
+    let addr, arg, out;
+    if (key === 'fader') {
+      const db = value === -Infinity || value == null || value <= -90 ? -150 : Math.min(10, Math.max(-150, Number(value)));
+      addr = `/Input_Channels/${n}/fader`; arg = osc.float(db); out = db <= -90 ? -Infinity : Math.round(db * 10) / 10;
+    } else if (key === 'on') {
+      addr = `/Input_Channels/${n}/mute`; arg = osc.float(value ? 0 : 1); out = !!value;
+    } else if (key === 'gain' && c.gain != null) {
+      const db = Math.min(60, Math.max(-20, Math.round(Number(value))));
+      addr = `/Input_Channels/${n}/Channel_Input/analog_gain`; arg = osc.float(db); out = db;
+    } else return undefined;
+    c[key] = out;
+    // Se agrupan los movimientos: como mucho un envío cada 40 ms por parámetro.
+    this.pendSets.set(addr, arg);
+    if (!this.flushTimer) this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      for (const [a, v] of this.pendSets) this.send(a, [v]);
+      this.pendSets.clear();
+    }, 40);
+    return out;
   }
 
   subscribe() {
@@ -138,6 +206,18 @@ class DiGiCo extends EventEmitter {
   }
 
   onMessage(buf, rinfo) {
+    // Con "Bundles" activado en External Control, la mesa agrupa varios mensajes OSC en un paquete "#bundle".
+    if (buf.length >= 16 && buf.toString('ascii', 0, 8) === '#bundle\0') {
+      this.rx.bundles++;
+      let off = 16;
+      while (off + 4 <= buf.length) {
+        const size = buf.readUInt32BE(off);
+        if (size === 0 || off + 4 + size > buf.length) break;
+        this.onMessage(buf.subarray(off + 4, off + 4 + size), rinfo); // cada elemento es un mensaje (o un bundle anidado)
+        off += 4 + size;
+      }
+      return;
+    }
     this.rx.total++;
     this.lastAny = Date.now();
     this.rx.last = Date.now();
@@ -170,6 +250,10 @@ class DiGiCo extends EventEmitter {
       if (this.probeLog && this.probeLog.items.length < 8) this.probeLog.items.push(`(no es OSC) ${buf.length} bytes: ${buf.subarray(0, 40).toString('hex')}`);
       if (this.rx.bad.length < 5) this.rx.bad.push(`${buf.length} bytes: ${buf.subarray(0, 48).toString('hex')}`);
       return;
+    }
+    if (this.cs) {
+      const cm = /^\/Input_Channels\/(\d+)\/(fader|mute|Channel_Input\/analog_gain)$/.exec(m.address);
+      if (cm && typeof m.args[0] === 'number') this.ctlUpdate(Number(cm[1]) - 1, cm[2] === 'fader' ? 'fader' : cm[2] === 'mute' ? 'mute' : 'gain', m.args[0]);
     }
     if (this.probeLog && this.probeLog.items.length < 8 && !/^\/Console\//.test(m.address) && !/\/name$/.test(m.address)) {
       this.probeLog.items.push(`${m.address} ,${m.tags} ${JSON.stringify(m.args.map((a) => (Buffer.isBuffer(a) ? `<${a.length} bytes>` : a))).slice(0, 100)}`);
@@ -358,7 +442,7 @@ class DiGiCo extends EventEmitter {
     for (const [a, n] of this.tx.byAddress) L.push(`  ${String(n).padStart(5)} × ${a}`);
     if (this.tx.errors.length) { L.push('  Errores al enviar:'); this.tx.errors.forEach((e) => L.push(`    ${e}`)); }
     L.push('');
-    L.push(`RECIBIDO de la mesa: ${this.rx.total} paquetes (el último: ${ago(this.rx.last)})`);
+    L.push(`RECIBIDO de la mesa: ${this.rx.total} mensajes (el último: ${ago(this.rx.last)})${this.rx.bundles ? `; llegaron en ${this.rx.bundles} paquetes "bundle" (Bundles activado en la mesa)` : ''}`);
     for (const [s, n] of this.rx.bySource) L.push(`  desde ${s}: ${n}`);
     for (const [a, e] of this.rx.byAddress) L.push(`  ${String(e.n).padStart(5)} × ${a}   ej: ${e.sample}`);
     if (this.chVals.size) {
@@ -394,6 +478,8 @@ class DiGiCo extends EventEmitter {
     this.timers.forEach(clearInterval);
     clearTimeout(this.countTimer);
     clearTimeout(this.retryStart);
+    clearTimeout(this.ctlTimer);
+    clearTimeout(this.flushTimer);
     try { if (this.sock) this.sock.close(); } catch {}
   }
 }
