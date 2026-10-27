@@ -43,7 +43,7 @@ class DiGiCo extends EventEmitter {
     this.resubAt = [];      // cuándo se renovó la suscripción (para ver si coincide con los parones)
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
     this.chSrc = 'post'; this.outSrc = 'fader'; // de dónde se piden los medidores: entradas post|fader, salidas fader|output
-    this.chOff = 1.5;     // dB que se restan a los medidores de entrada: la mesa redondea hacia 0 en escalones de 3 dB; se muestra el centro del escalón
+    this.chOff = 0;       // dB que se restan a los medidores de entrada (0 = el valor tal cual lo manda la mesa; probado con 1,5 y se veía más bajo que la consola)
     this.rise = 0;        // suavizado de la subida del medidor en la interfaz (ms, 0 = instantánea)
     this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
     this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
