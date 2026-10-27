@@ -143,6 +143,13 @@ class DiGiCo extends EventEmitter {
     this.rx.last = Date.now();
     if (rinfo) { const s = `${rinfo.address}:${rinfo.port}`; this.rx.bySource.set(s, (this.rx.bySource.get(s) || 0) + 1); }
     const um = this.parseUntaggedMeter(buf);
+    if (this.meterProbe) {
+      // Prueba de medidores sueltos: se apunta cada respuesta a un medidor consultado; el resto cuenta como "otros".
+      const addr = um ? um.address : (() => { const e = buf.indexOf(0); return e > 0 ? buf.toString('utf8', 0, e) : ''; })();
+      const slot = this.meterProbe.series.get(addr);
+      if (slot) { let vals = um ? um.floats : null; if (!vals) { try { vals = osc.decode(buf).args; } catch { vals = ['?']; } } slot.push(vals.map((v) => (typeof v === 'number' ? Math.round(v * 1000) / 1000 : v))); }
+      else this.meterProbe.other++;
+    }
     if (um) {
       const key = um.address.replace(/\/\d+\//g, '/N/');
       const e = this.rx.byAddress.get(key) || { n: 0, sample: '' };
@@ -258,6 +265,38 @@ class DiGiCo extends EventEmitter {
       detail: `Sin respuesta de ${this.ip}. Revisa External Control en la mesa (dispositivo "DiGiCo Pad", puertos ${this.sendPort}/${this.listenPort}).`,
       key: 'st.digicoLost', p,
     });
+  }
+
+  // Prueba de medidores sueltos: pide cada medidor por separado, repetidamente durante unos 8 s, y anota los valores.
+  // Si cambian con la señal, se puede seguir el nivel consultando cada canal (/diagnostico?medidor=7).
+  async probeMeters(ch = 7) {
+    const n = Math.min(Math.max(Math.round(ch) || 7, 1), this.count || 48);
+    const paths = [
+      `/Input_Channels/${n}/Channel_Input/pre_meter/left`,
+      `/Input_Channels/${n}/Channel_Input/post_meter/left`,
+      `/Input_Channels/${n}/fader_meter/left`,
+      `/Input_Channels/${n}/Dynamics/input_meter/left`,
+      `/Input_Channels/${n}/Output/meter/left`,
+    ];
+    this.meterProbe = { series: new Map(paths.map((p) => [p, []])), other: 0 };
+    const t0 = Date.now();
+    for (let round = 0; round < 16; round++) {
+      for (const p of paths) { this.send(`${p}/?`); await new Promise((r) => setTimeout(r, 30)); }
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    const probe = this.meterProbe; this.meterProbe = null;
+    const out = [`PRUEBA DE MEDIDORES SUELTOS (canal ${n}). 16 rondas en ${Math.round((Date.now() - t0) / 1000)} s; cambia el nivel de la señal durante la prueba.`, ''];
+    for (const [p, vals] of probe.series) {
+      const flat = vals.map((v) => (v.length === 1 ? v[0] : JSON.stringify(v)));
+      out.push(`${p}/?`);
+      out.push(`    respuestas: ${vals.length}   valores distintos: ${[...new Set(flat.map(String))].length}`);
+      out.push(`    serie: ${flat.join(' ')}`);
+    }
+    out.push('');
+    out.push(`Otros paquetes durante la prueba (descargas del canal, cambios de parámetros…): ${probe.other}`);
+    out.push('');
+    return out.join('\n');
   }
 
   // Prueba de medidores: manda varias formas posibles de pedirlos (todas de lectura) y anota qué contesta la mesa.

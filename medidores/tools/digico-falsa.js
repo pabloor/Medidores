@@ -10,10 +10,10 @@ sock.on('message', (b) => {
   const m = osc.decode(b);
   if (m.address === '/Console/Name/?') reply('/Console/Name', ['SD12 12345']);
   else if (m.address === '/Console/Input_Channels/?') reply('/Console/Input_Channels', [24]);
-  else if (process.env.METERQ && /\/post_meter\/\?$/.test(m.address)) {
+  else if (process.env.METERQ && /meter.*\/\?$/.test(m.address)) {
     // METERQ=1: contesta a la consulta de medidor con un OSC "sin etiquetas" (dirección + float), como DiGiCo
     const addr = Buffer.from(m.address.slice(0, -2) + '\0'); const pad = (x) => Buffer.concat([x, Buffer.alloc((4 - (x.length % 4)) % 4)]);
-    const f = Buffer.alloc(4); f.writeFloatBE(0.2);
+    const f = Buffer.alloc(4); f.writeFloatBE(Math.round((0.5 + 0.5 * Math.sin(Date.now() / 700)) * 100) / 100); // valor que cambia con el tiempo
     sock.send(Buffer.concat([pad(addr), f]), 9000, HOST);
   }
   else if (m.address === '/Meters/clear') subs.clear();
