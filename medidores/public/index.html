@@ -193,6 +193,12 @@
     font: inherit; font-size: 19px; font-variant-numeric: tabular-nums;
   }
   .field[hidden], .ports[hidden] { display: none; }
+  .field.nic { grid-column: 1 / -1; }
+  .field select {
+    display: block; width: 100%; margin-top: 5px; padding: 10px 12px; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--stage); color: var(--ink); font: inherit; font-size: 17px;
+  }
+  .field small { display: block; margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.3; }
   .ports { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .error { color: var(--hot); font-size: 15px; min-height: 1.2em; margin: 10px 0 0; }
   .role-seg { display: flex; gap: 6px; margin: 0 0 12px; }
@@ -576,6 +582,7 @@
   <div class="ports" id="digicoFields" hidden>
     <label class="field"><span data-i18n="setup.sendPort"></span><input id="sendPort" inputmode="numeric" placeholder="8000"></label>
     <label class="field"><span data-i18n="setup.listenPort"></span><input id="listenPort" inputmode="numeric" placeholder="9000"></label>
+    <label class="field nic"><span data-i18n="setup.nic"></span><select id="setupNic"></select><small data-i18n="setup.nicHint"></small></label>
   </div>
   <p class="error" id="setupError" role="alert"></p>
   <div class="actions">
@@ -1052,6 +1059,7 @@
     $('ipInput').value = c.ip || '';
     $('sendPort').value = c['send-port'] || '';
     $('listenPort').value = c['listen-port'] || '';
+    setupNicWanted = c.nic || ''; fillSetupNic(); askNics();
     $('setupCancel').hidden = !current;
     choose(c.driver && HINTS[c.driver] ? c.driver : 'auto');
     if (dlg.open) dlg.close();
@@ -1065,7 +1073,7 @@
     if ((chosen === 'yamaha' || chosen === 'digico') && !ip) { $('setupError').textContent = t('err.needIp'); return; }
     if (ip && !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('setupError').textContent = t('err.ipForm', { ex: '192.168.1.20' }); return; }
     if (!ws || ws.readyState !== 1) { $('setupError').textContent = t('err.noBridge'); return; }
-    ws.send(JSON.stringify({ type: 'connect', driver: chosen, ip, 'send-port': $('sendPort').value.trim(), 'listen-port': $('listenPort').value.trim() }));
+    ws.send(JSON.stringify({ type: 'connect', driver: chosen, ip, 'send-port': $('sendPort').value.trim(), 'listen-port': $('listenPort').value.trim(), nic: chosen === 'digico' ? $('setupNic').value : '' }));
     setup.close();
     if (isLocal && urls.length && !store.get('phoneShown', false)) { store.set('phoneShown', true); $('phone').showModal(); }
   };
@@ -1308,7 +1316,16 @@
     sel.innerHTML = `<option value="">${esc(t('sh.nicAuto'))}</option>` + nics.map((n) => `<option value="${esc(n.name)}">${esc(n.name)}${n.wifi ? ' · wifi' : ''} · ${esc(n.address)}</option>`).join('');
     sel.value = nics.some((n) => n.name === keep) ? keep : '';
   }
-  function onNics(m) { nics = m.list || []; fillNics(); renderShureList(); }
+  // Selector de adaptador de la ventana de conexión (DiGiCo): si el elegido ya no existe, se mantiene visible como "no disponible".
+  let setupNicWanted = '';
+  function fillSetupNic() {
+    const sel = $('setupNic');
+    const want = setupNicWanted;
+    sel.innerHTML = `<option value="">${esc(t('sh.nicAuto'))}</option>` + nics.map((n) => `<option value="${esc(n.name)}">${esc(n.name)}${n.wifi ? ' · wifi' : ''} · ${esc(n.address)}</option>`).join('')
+      + (want && !nics.some((n) => n.name === want) ? `<option value="${esc(want)}">${esc(want)} (${esc(t('sh.nicGone'))})</option>` : '');
+    sel.value = want;
+  }
+  function onNics(m) { nics = m.list || []; fillNics(); fillSetupNic(); renderShureList(); }
   const askNics = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'nics' })); };
   $('shNic').addEventListener('focus', askNics);
   $('openSettings').addEventListener('click', askNics);

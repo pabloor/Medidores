@@ -9,6 +9,7 @@
 // Lo que NO se sabe con certeza: la escala exacta de los valores y si la suscripción caduca.
 // Por eso hay --digico-scale y --sniff para investigar con una mesa real.
 const dgram = require('dgram');
+const os = require('os');
 const EventEmitter = require('events');
 const osc = require('./osc');
 
@@ -19,6 +20,7 @@ class DiGiCo extends EventEmitter {
     this.sendPort = Number(opts['send-port'] || 8000);     // puerto de recepción configurado en la mesa
     this.listenPort = Number(opts['listen-port'] || 9000); // puerto de envío configurado en la mesa
     this.fallbackCount = Number(opts.channels || 48);
+    this.nic = typeof opts.nic === 'string' && /^[A-Za-z0-9_.:-]{1,16}$/.test(opts.nic) ? opts.nic : ''; // adaptador de red del ordenador (vacío = automático)
     this.scale = opts['digico-scale'] || 'auto';            // auto | linear | db | pos
     this.sniff = !!opts.sniff;
     this.count = 0;
@@ -27,6 +29,10 @@ class DiGiCo extends EventEmitter {
     this.seen = new Set();
     this.timers = [];
     this.lastRx = 0;
+    // Diagnóstico: qué se ha enviado a la mesa y qué ha llegado (se consulta en /diagnostico).
+    this.startedAt = Date.now();
+    this.tx = { total: 0, byAddress: new Map(), errors: [] };
+    this.rx = { total: 0, bySource: new Map(), byAddress: new Map(), bad: [], last: 0 };
   }
 
   start() {
@@ -34,24 +40,61 @@ class DiGiCo extends EventEmitter {
       this.emit('status', { state: 'error', detail: 'Indica la IP de la DiGiCo con --ip 192.168.x.x', key: 'st.needIp' });
       return;
     }
+    // Con un adaptador elegido, el socket se abre en la dirección de ese adaptador: se envía desde ella y solo se recibe por ella.
+    // Si el adaptador no está disponible (cable desenchufado) no se usa otro: se avisa y se reintenta.
+    let bindAddr;
+    if (this.nic) {
+      const a = (os.networkInterfaces()[this.nic] || []).find((x) => (x.family === 'IPv4' || x.family === 4) && !x.internal);
+      if (!a) {
+        this.emit('status', { state: 'error', detail: `El adaptador de red "${this.nic}" no está disponible. Conéctalo o elige otro.`, key: 'st.nicGone', p: { nic: this.nic } });
+        this.retryStart = setTimeout(() => this.start(), 3000);
+        return;
+      }
+      bindAddr = a.address;
+      this.localRoute = a.address;
+    }
     this.sock = dgram.createSocket('udp4');
-    this.sock.on('message', (m) => this.onMessage(m));
+    this.sock.on('message', (m, r) => this.onMessage(m, r));
     this.sock.on('error', (e) => this.emit('status', {
       state: 'error',
       detail: e.code === 'EADDRINUSE' ? `El puerto UDP ${this.listenPort} está ocupado. Usa --listen-port.` : `Error de red: ${e.message}`,
       key: e.code === 'EADDRINUSE' ? 'st.portBusy' : 'st.netError',
       p: { port: this.listenPort, msg: e.message },
     }));
-    this.sock.bind(this.listenPort, () => this.handshake());
+    this.sock.bind(this.listenPort, bindAddr, () => this.handshake());
     this.timers.push(setInterval(() => this.checkAlive(), 1000));
   }
 
   send(address, args = []) {
-    this.sock.send(osc.encode(address, args), this.sendPort, this.ip);
+    const key = address.replace(/\/\d+\//g, '/N/'); // los canales se agrupan: /Input_Channels/N/…
+    this.tx.total++;
+    this.tx.byAddress.set(key, (this.tx.byAddress.get(key) || 0) + 1);
+    this.sock.send(osc.encode(address, args), this.sendPort, this.ip, (err) => {
+      if (err && this.tx.errors.length < 10) this.tx.errors.push(`${new Date().toLocaleTimeString()} ${err.code || ''} ${err.message}`);
+    });
+  }
+
+  // Averigua qué dirección de este ordenador usa el sistema para llegar a la mesa (un "connect" UDP no envía nada).
+  // Red que se está usando, para mostrarla: adaptador elegido (o "automático") y la dirección de este ordenador.
+  netLabel() {
+    return `${this.nic ? this.nic : 'auto'}${this.localRoute ? ' ' + this.localRoute : ''}`;
+  }
+
+  probeRoute() {
+    if (this.nic) return; // con un adaptador elegido la dirección ya se conoce
+    try {
+      const probe = dgram.createSocket('udp4');
+      probe.on('error', () => { try { probe.close(); } catch {} });
+      probe.connect(this.sendPort, this.ip, () => {
+        try { this.localRoute = probe.address().address; } catch {}
+        try { probe.close(); } catch {}
+      });
+    } catch {}
   }
 
   handshake() {
-    this.emit('status', { state: 'connecting', detail: `Contactando con la DiGiCo en ${this.ip} (envío ${this.sendPort}, escucha ${this.listenPort})…`, key: 'st.digicoConnecting', p: { ip: this.ip, send: this.sendPort, listen: this.listenPort } });
+    this.probeRoute();
+    this.emit('status', { state: 'connecting', detail: `Contactando con la DiGiCo en ${this.ip} (envío ${this.sendPort}, escucha ${this.listenPort}) · red: ${this.netLabel()}…`, key: 'st.digicoConnecting', p: { ip: this.ip, send: this.sendPort, listen: this.listenPort, net: this.netLabel() } });
     ['/Console/Name/?', '/Console/Input_Channels/?', '/Console/Channels/?'].forEach((q, i) => setTimeout(() => this.send(q), i * 50));
     clearTimeout(this.countTimer);
     // Si la mesa no dice cuántos canales tiene, se usa --channels.
@@ -77,9 +120,22 @@ class DiGiCo extends EventEmitter {
     this.subscribedAt = Date.now();
   }
 
-  onMessage(buf) {
+  onMessage(buf, rinfo) {
+    this.rx.total++;
+    this.rx.last = Date.now();
+    if (rinfo) { const s = `${rinfo.address}:${rinfo.port}`; this.rx.bySource.set(s, (this.rx.bySource.get(s) || 0) + 1); }
     let m;
-    try { m = osc.decode(buf); } catch { return; }
+    try { m = osc.decode(buf); } catch {
+      if (this.rx.bad.length < 5) this.rx.bad.push(`${buf.length} bytes: ${buf.subarray(0, 48).toString('hex')}`);
+      return;
+    }
+    {
+      const key = m.address.replace(/\/\d+\//g, '/N/');
+      const e = this.rx.byAddress.get(key) || { n: 0, sample: '' };
+      e.n++;
+      if (!e.sample) e.sample = JSON.stringify(m.args.map((a) => (Buffer.isBuffer(a) ? `<${a.length} bytes>` : a))).slice(0, 120);
+      this.rx.byAddress.set(key, e);
+    }
     if (this.sniff && m.address !== '/Meters/values' && !this.seen.has(m.address)) {
       this.seen.add(m.address);
       console.log('[digico]', m.address, JSON.stringify(m.args.map((a) => (Buffer.isBuffer(a) ? `<${a.length} bytes>` : a))));
@@ -148,14 +204,60 @@ class DiGiCo extends EventEmitter {
         ? `${this.consoleName ? 'DiGiCo ' + this.consoleName : 'DiGiCo'} (${this.ip})`
         : `Sin medidores de ${this.ip}. Revisa External Control en la mesa (dispositivo "DiGiCo Pad", puertos ${this.sendPort}/${this.listenPort}).`,
       key: alive ? 'st.connected' : 'st.digicoLost',
-      p: { name: this.consoleName ? `DiGiCo ${this.consoleName}` : 'DiGiCo', ip: this.ip, send: this.sendPort, listen: this.listenPort },
+      p: { name: this.consoleName ? `DiGiCo ${this.consoleName}` : 'DiGiCo', ip: this.ip, send: this.sendPort, listen: this.listenPort, net: this.netLabel() },
     });
+  }
+
+  // Texto para ver qué pasa con la mesa (se abre desde la app en /diagnostico).
+  diagnostics() {
+    const L = [];
+    const ago = (t) => (t ? `hace ${Math.round((Date.now() - t) / 1000)} s` : 'nunca');
+    L.push('DIAGNÓSTICO DiGiCo');
+    L.push(`IP de la mesa: ${this.ip}`);
+    L.push(`La app ENVÍA al puerto ${this.sendPort} de la mesa (en la mesa: "Receive" = ${this.sendPort})`);
+    L.push(`La app ESCUCHA en el puerto ${this.listenPort} (en la mesa: "Send" = ${this.listenPort})`);
+    let bound = 'no';
+    try { const a = this.sock.address(); bound = `sí, en ${a.address}:${a.port}`; } catch {}
+    L.push(`Adaptador elegido: ${this.nic ? `${this.nic} (${this.localRoute || 'no disponible'})` : 'automático (lo decide el sistema)'}`);
+    L.push(`Puerto de escucha abierto: ${bound}`);
+    // Con varios adaptadores, qué dirección de este ordenador usa el sistema para llegar a la mesa.
+    L.push(`Dirección de este ordenador para llegar a la mesa: ${this.localRoute || 'no se pudo determinar'}${this.localRoute ? '  (la mesa debe enviar a ESTA dirección)' : ''}`);
+    const ips = [];
+    for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if ((a.family === 'IPv4' || a.family === 4) && !a.internal) ips.push(`${name} ${a.address}`);
+    L.push(`Adaptadores de este ordenador: ${ips.join(' | ') || 'ninguno'}`);
+    L.push(`Canales detectados: ${this.count || 'aún no (se usará ' + this.fallbackCount + ' si la mesa no los dice)'}`);
+    L.push('');
+    L.push(`ENVIADO a la mesa: ${this.tx.total} paquetes`);
+    for (const [a, n] of this.tx.byAddress) L.push(`  ${String(n).padStart(5)} × ${a}`);
+    if (this.tx.errors.length) { L.push('  Errores al enviar:'); this.tx.errors.forEach((e) => L.push(`    ${e}`)); }
+    L.push('');
+    L.push(`RECIBIDO de la mesa: ${this.rx.total} paquetes (el último: ${ago(this.rx.last)})`);
+    for (const [s, n] of this.rx.bySource) L.push(`  desde ${s}: ${n}`);
+    for (const [a, e] of this.rx.byAddress) L.push(`  ${String(e.n).padStart(5)} × ${a}   ej: ${e.sample}`);
+    if (this.rx.bad.length) { L.push('  Paquetes que no son OSC (primeros bytes en hexadecimal):'); this.rx.bad.forEach((b) => L.push(`    ${b}`)); }
+    L.push('');
+    L.push('QUÉ SIGNIFICA');
+    if (!this.rx.total) {
+      L.push('  No ha llegado NADA de la mesa. Causas habituales, por orden:');
+      L.push('  1. La mesa no envía a este ordenador: en External Control, la IP de destino debe ser la "Dirección de este ordenador" de arriba.');
+      L.push(`  2. Puertos: en la mesa, Send = ${this.listenPort} y Receive = ${this.sendPort}. Si son otros, cámbialos aquí en la pantalla de conexión.`);
+      L.push('  3. Falta cargar en la mesa el conjunto de comandos de iPad, o el dispositivo no es de tipo "DiGiCo Pad", o hay un iPad conectado.');
+      L.push(`  4. El cortafuegos del ordenador bloquea el puerto UDP ${this.listenPort} de entrada.`);
+    } else if (this.rx.bySource.size && ![...this.rx.bySource.keys()].some((s) => s.startsWith(`${this.ip}:`))) {
+      L.push(`  Llegan paquetes, pero NO desde la IP ${this.ip} que has indicado: mira "desde" arriba y usa esa IP.`);
+    } else if (!this.rx.byAddress.has('/Meters/values')) {
+      L.push('  La mesa contesta, pero no envía medidores. Falta suscribirse o el protocolo de tu modelo difiere: envíame este texto.');
+    } else {
+      L.push('  La mesa envía medidores. Si no ves niveles, envíame este texto (puede ser la escala de los valores).');
+    }
+    return L.join('\n');
   }
 
   stop() {
     this.timers.forEach(clearInterval);
     clearTimeout(this.countTimer);
-    try { this.sock.close(); } catch {}
+    clearTimeout(this.retryStart);
+    try { if (this.sock) this.sock.close(); } catch {}
   }
 }
 

@@ -171,6 +171,8 @@ Configuración en la mesa:
 2. Añade un dispositivo de tipo **DiGiCo Pad** con la IP del ordenador puente. Configura el envío (Send) al puerto 9000 y la recepción (Receive) al 8000.
 3. Carga el conjunto de comandos de iPad en la mesa. Sin él, la mesa no responde y no da ningún error.
 
+**Si no conecta:** en la ventana de conexión, el selector **Adaptador de red** fija por qué cable o wifi del ordenador se habla con la mesa (la IP de destino que pongas en External Control en la mesa debe ser la de ese adaptador), y el estado muestra la red en uso. Con la app abierta, la página `http://localhost:3000/diagnostico` (solo desde el propio ordenador) muestra qué ha enviado la app, qué ha llegado de la mesa y desde qué IP, la dirección de este ordenador para llegar a la mesa y las causas más probables si no llega nada.
+
 Arranque:
 
     node server.js --driver digico --ip 192.168.1.20 --sniff

@@ -57,7 +57,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 
 // Opciones que la app puede enviar para cada marca.
 const ALLOWED = {
-  auto: ['ip'], yamaha: ['ip'], digico: ['ip', 'send-port', 'listen-port'], sim: [],
+  auto: ['ip'], yamaha: ['ip'], digico: ['ip', 'send-port', 'listen-port', 'nic'], sim: [],
 };
 
 // Direcciones de este ordenador para abrir la app desde el móvil, de más a menos probable:
@@ -123,6 +123,7 @@ function sanitize(input) {
     const v = String(input[key] ?? '').trim();
     if (!v) continue;
     if (key === 'ip' && !net.isIPv4(v)) return { error: `"${v}" no es una IP válida. Debe tener la forma 192.168.1.20.`, key: 'err.badIp', p: { ip: v } };
+    if (key === 'nic' && !/^[A-Za-z0-9_.:-]{1,16}$/.test(v)) continue; // nombre de adaptador no válido: se ignora (automático)
     if (key.endsWith('port') && !(Number(v) >= 1 && Number(v) <= 65535)) return { error: `Puerto no válido: ${v}`, key: 'err.badPort', p: { v } };
     cfg[key] = v;
   }

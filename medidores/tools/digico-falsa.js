@@ -4,7 +4,8 @@ const dgram = require('dgram');
 const osc = require('../drivers/osc');
 const sock = dgram.createSocket('udp4');
 const subs = new Set();
-const reply = (a, args) => sock.send(osc.encode(a, args), 9000, '127.0.0.1');
+const HOST = process.env.HOST || '127.0.0.1'; // HOST=192.0.2.2 para probar con una IP de la red
+const reply = (a, args) => sock.send(osc.encode(a, args), 9000, HOST);
 sock.on('message', (b) => {
   const m = osc.decode(b);
   if (m.address === '/Console/Name/?') reply('/Console/Name', ['SD12 12345']);
@@ -17,6 +18,6 @@ setInterval(() => {
   if (!subs.size) return;
   const t = Date.now() / 1000, args = [];
   for (const id of subs) { args.push(id, Math.pow(10, (-30 + 20 * Math.sin(t * 2 + id * 0.4)) / 20)); }
-  sock.send(osc.encode('/Meters/values', args), 9000, '127.0.0.1');
+  sock.send(osc.encode('/Meters/values', args), 9000, HOST);
 }, 50);
 sock.bind(8000, () => console.log('DiGiCo falsa escuchando en UDP 8000 (responde a 9000)'));
