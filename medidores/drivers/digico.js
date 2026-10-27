@@ -38,6 +38,8 @@ class DiGiCo extends EventEmitter {
     this.timers = [];
     this.lastRx = 0;   // último medidor recibido
     this.lastAny = 0;  // último paquete de cualquier tipo recibido de la mesa
+    this.meterSeen = false; // ¿ha llegado algún medidor desde que se conectó?
+    this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
     // Diagnóstico: qué se ha enviado a la mesa y qué ha llegado (se consulta en /diagnostico).
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
@@ -76,6 +78,7 @@ class DiGiCo extends EventEmitter {
     }));
     this.sock.bind(this.listenPort, bindAddr, () => this.handshake());
     this.timers.push(setInterval(() => this.checkAlive(), 1000));
+    this.timers.push(setInterval(() => { if (this.sock && this.count) this.send('/Console/Name/?'); }, 2500)); // aviso de vida: la mesa contesta aunque nadie toque nada
   }
 
   send(address, args = []) {
@@ -187,7 +190,9 @@ class DiGiCo extends EventEmitter {
     return out;
   }
 
-  subscribe() {
+  // refresh = true: renueva la suscripción sin tocar el estado (niveles, canales, "medidores vistos").
+  subscribe(refresh = false) {
+    if (refresh) this.resubs++; else this.meterSeen = false;
     this.send('/Meters/clear');
     for (let i = 1; i <= this.count; i++) {
       setTimeout(() => {
@@ -313,6 +318,7 @@ class DiGiCo extends EventEmitter {
   onMeters(args) {
     if (!this.count) return;
     this.lastRx = Date.now();
+    this.meterSeen = true;
     this.raw = this.raw || { '/Meters/values': [] };
     for (let k = 0; k + 1 < args.length; k += 2) {
       const id = Number(args[k]), v = Number(args[k + 1]);
@@ -339,16 +345,23 @@ class DiGiCo extends EventEmitter {
   }
 
   checkAlive() {
-    const alive = Date.now() - this.lastRx < 3000;
-    // Sin medidores tras suscribir: repetir el saludo cada 8 s.
-    if (!alive && this.subscribedAt && Date.now() - this.subscribedAt > 30000) { // cada 30 s, no cada 8: no saturar la mesa si no manda medidores
+    const now = Date.now();
+    // La mesa solo envía un medidor cuando cambia: con los canales en silencio puede pasar tiempo sin medidores y la conexión
+    // sigue bien. Por eso "la mesa sigue ahí" se mide con cualquier respuesta (el aviso de cada 2,5 s la provoca).
+    const talking = now - this.lastAny < 10000;
+    if (talking && this.subscribedAt && this.count) {
+      // Renovar la suscripción (sin reiniciar nada): periódicamente y si la mesa contesta pero no manda medidores.
+      const metersQuiet = !this.meterSeen || now - this.lastRx > 10000;
+      if (now - this.subscribedAt > 30000 || (metersQuiet && now - this.subscribedAt > 10000)) this.subscribe(true);
+    }
+    // La mesa no contesta desde hace 30 s: volver a presentarse desde cero (por si se reinició).
+    if (!talking && this.subscribedAt && now - this.subscribedAt > 30000) {
       this.subscribedAt = 0;
       this.count = 0;
       this.handshake();
     }
-    // Tres situaciones: llegan medidores; la mesa contesta pero no manda medidores; la mesa no contesta.
-    const talking = Date.now() - this.lastAny < 45000; // el saludo se repite cada 30 s: ahí contesta aunque nadie toque nada
-    const state = alive ? 'connected' : talking ? 'nometers' : 'lost';
+    // Tres situaciones: la mesa contesta y hay medidores; contesta pero aún no ha mandado ninguno; no contesta.
+    const state = !talking ? 'lost' : this.meterSeen ? 'connected' : 'nometers';
     if (state === this.state) return;
     this.state = state;
     const name = this.consoleName ? `DiGiCo ${this.consoleName}` : 'DiGiCo';
@@ -448,6 +461,7 @@ class DiGiCo extends EventEmitter {
     for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if ((a.family === 'IPv4' || a.family === 4) && !a.internal) ips.push(`${name} ${a.address}`);
     L.push(`Adaptadores de este ordenador: ${ips.join(' | ') || 'ninguno'}`);
     L.push(`Canales detectados: ${this.count || 'aún no (se usará ' + this.fallbackCount + ' si la mesa no los dice)'}`);
+    L.push(`Medidores: ${this.meterSeen ? 'llegan' : 'aún no han llegado'} (último ${this.lastRx ? 'hace ' + Math.round((Date.now() - this.lastRx) / 1000) + ' s' : 'nunca'}); suscripción renovada ${this.resubs} veces`);
     L.push('');
     L.push(`ENVIADO a la mesa: ${this.tx.total} paquetes`);
     for (const [a, n] of this.tx.byAddress) L.push(`  ${String(n).padStart(5)} × ${a}`);

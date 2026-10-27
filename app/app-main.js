@@ -1,6 +1,6 @@
 // Medidores.app: ventana propia + servidores integrados (sala y, opcionalmente, escenario).
 // Cada servidor es el server.js de siempre, lanzado como proceso hijo con el propio Electron en modo Node.
-const { app, BrowserWindow, Menu, dialog, shell, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, clipboard, powerSaveBlocker } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -200,6 +200,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     loadSettings();
     app.setName('Medidores');
+    // Que el sistema no "duerma" la app (App Nap en Mac) cuando no está en primer plano: la conexión con la mesa lleva temporizadores.
+    powerSaveBlocker.start('prevent-app-suspension');
     try {
       const sala = await startServer(SALA);
       buildMenu();

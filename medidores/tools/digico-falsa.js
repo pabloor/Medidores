@@ -4,6 +4,8 @@ const dgram = require('dgram');
 const osc = require('../drivers/osc');
 const sock = dgram.createSocket('udp4');
 const subs = new Set();
+let lastReq = 0;
+const initial = new Set(); // ids recién pedidos: se les manda su valor actual una vez, como hace la mesa
 const ctl = new Map(); // valores de control (fader, mute, ganancia) que ha fijado la app
 const HOST = process.env.HOST || '127.0.0.1'; // HOST=192.0.2.2 para probar con una IP de la red
 const bundle = (msg) => { const h = Buffer.alloc(16); h.write('#bundle\0', 0, 'ascii'); h.writeUInt32BE(0, 8); h.writeUInt32BE(1, 12); const s = Buffer.alloc(4); s.writeUInt32BE(msg.length); return Buffer.concat([h, s, msg]); };
@@ -28,14 +30,21 @@ sock.on('message', (b) => {
     ctl.set(m.address, m.args[0]); console.log(`[set] ${m.address} = ${m.args[0]}`);
   }
   else if (m.address === '/Meters/clear') subs.clear();
-  else if (/^\/Meters\/request\/\d+$/.test(m.address) && typeof m.args[0] === 'string') { if (!process.env.NOMETERS) subs.add(Number(m.address.split('/').pop())); } // NOMETERS=1: no manda medidores
+  else if (/^\/Meters\/request\/\d+$/.test(m.address) && typeof m.args[0] === 'string') {
+    // NOMETERS=1: no manda medidores. EXPIRE=<s>: la suscripción caduca a los <s> segundos de la última petición.
+    if (!process.env.NOMETERS) { subs.add(Number(m.address.split('/').pop())); lastReq = Date.now(); initial.add(Number(m.address.split('/').pop())); }
+  }
   else if (m.address.endsWith('/name/?')) reply(m.address.slice(0, -2), [`Canal ${m.address.split('/')[2]}`]);
 });
 // Medidores como los envía la mesa real: /Meters/values con pares (id 0-based, entero con dos mitades de 16 bits:
 // pico retenido arriba, nivel abajo, en −dB; 126 = silencio). Unas veces por lotes de 24 pares y otras de un solo canal.
 setInterval(() => {
+  if (process.env.EXPIRE && subs.size && Date.now() - lastReq > Number(process.env.EXPIRE) * 1000) subs.clear();
   if (!subs.size) return;
-  const t = Date.now() / 1000, ids = [...subs].sort((a, b) => a - b);
+  // QUIET=1: solo se manda el valor inicial tras cada petición; si nadie cambia nada, la mesa no manda más
+  const t = Date.now() / 1000, ids = process.env.QUIET ? [...initial].sort((a, b) => a - b) : [...subs].sort((a, b) => a - b);
+  if (process.env.QUIET) initial.clear();
+  if (!ids.length) return;
   const packed = (id) => {
     if (id === 6) { const lvl = Math.round(-(-30 + 3 * Math.sin(t * 5))); return (27 << 16) | lvl; } // el canal 7 tiene ruido rosa
     return (126 << 16) | 126;
@@ -45,7 +54,7 @@ setInterval(() => {
     for (const id of ids.slice(i, i + 24)) args.push(id, packed(id));
     sock.send(osc.encode('/Meters/values', args), 9000, HOST);
   }
-  if (subs.has(6)) sock.send(osc.encode('/Meters/values', [6, packed(6)]), 9000, HOST);
+  if (!process.env.QUIET && subs.has(6)) sock.send(osc.encode('/Meters/values', [6, packed(6)]), 9000, HOST);
 }, 50);
 
 // Cada 2 s "alguien" toca la mesa: fader, mute y ganancia (trim) de algunos canales, como llegan de una mesa real.
