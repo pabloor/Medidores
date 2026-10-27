@@ -406,7 +406,7 @@ class DiGiCo extends EventEmitter {
       this.lastPacked[id] = { hi, lo, t: Date.now() };
       if (this.series) this.series.ids.add(id);
       if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo, v]);
-      const m = this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
+      const m = this.meterMode === 'mix' ? (hi + lo) / 2 : this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
       const db = -m;
       const val = Math.max(-90, Math.min(20, db));
       if (id < this.count) this.values[id] = val;
@@ -420,7 +420,7 @@ class DiGiCo extends EventEmitter {
   }
 
   // Ajustes en directo del medidor (desde /diagnostico?modo=…&caida=…): no se guardan, valen hasta cerrar la app.
-  setMeterMode(mode) { if (['level', 'peak', 'max'].includes(mode)) this.meterMode = mode; return this.meterMode; }
+  setMeterMode(mode) { if (['level', 'peak', 'max', 'mix'].includes(mode)) this.meterMode = mode; return this.meterMode; }
   setFall(v) { const n = Number(v); if (Number.isFinite(n) && n >= 5 && n <= 400) { this.fall = n; this.emit('meterFall', n); } return this.fall; }
 
   // Graba unos segundos los valores que manda la mesa para un canal, para ver su ritmo y cómo se comportan las dos mitades.
