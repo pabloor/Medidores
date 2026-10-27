@@ -1,0 +1,111 @@
+
+================ RESUMEN ================
+FLUJOS (dirección, protocolo, puertos):
+    2790 paquetes  MESA->APP  UDP  puerto origen 53840 -> puerto destino 9000
+    1034 paquetes  APP->MESA  UDP  puerto origen 50304 -> puerto destino 8000
+     401 paquetes  APP->MESA  UDP  puerto origen 53355 -> puerto destino 8000
+     353 paquetes  APP->MESA  otro  puerto origen 124 -> puerto destino 121
+      62 paquetes  MESA->APP  UDP  puerto origen 2029 -> puerto destino 2029
+       1 paquetes  APP->MESA  otro  puerto origen 121 -> puerto destino 252
+       1 paquetes  APP->MESA  otro  puerto origen 121 -> puerto destino 250
+       1 paquetes  APP->MESA  otro  puerto origen 121 -> puerto destino 251
+Paquetes que no son OSC: 62 (primeros bytes en hexadecimal):
+    16000000ff0000000000000000000000c0a866795c03
+    16000000ff0000000000000000000000c0a866795c03
+    16000000ff0000000000000000000000c0a866795c03
+
+MENSAJES CON "meter" EN LA DIRECCIÓN:
+    1184 x  MESA->APP  /Meters/values  ii   ej: [6, 3]
+     400 x  MESA->APP  /Meters/values  iiii   ej: [10, 786489, 11, 786489]
+     120 x  APP->MESA  /Meters/clear     ej: []
+      10 x  APP->MESA  /Meters/request/0  s   ej: ["/Input_Channels/1/Channel_Input/post_meter/left"]
+      10 x  APP->MESA  /Meters/request/1  s   ej: ["/Input_Channels/2/Channel_Input/post_meter/left"]
+      10 x  APP->MESA  /Meters/request/2  s   ej: ["/Input_Channels/3/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/4  s   ej: ["/Input_Channels/5/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/10  s   ej: ["/Input_Channels/11/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/9  s   ej: ["/Input_Channels/10/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/8  s   ej: ["/Input_Channels/9/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/11  s   ej: ["/Input_Channels/12/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/7  s   ej: ["/Input_Channels/8/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/3  s   ej: ["/Input_Channels/4/Channel_Input/post_meter/left"]
+       9 x  MESA->APP  /Meters/values  iiiiiiiiiiiiiiiiiiiiiiii   ej: [0, 8257662, 1, 8257662, 2, 8257662, 3, 8257662, 4, 8257662, 5, 8257662, 6, 3, 7, 8257662, 8, 8257662, 9, 8257
+       9 x  APP->MESA  /Meters/request/5  s   ej: ["/Input_Channels/6/Channel_Input/post_meter/left"]
+       9 x  APP->MESA  /Meters/request/6  s   ej: ["/Input_Channels/7/Channel_Input/post_meter/left"]
+       1 x  MESA->APP  /Meters/values  iiiiii   ej: [0, 8257536, 1, 8257536, 2, 8257662]
+
+MEDIDORES PEDIDOS POR LA APP (número -> ruta):
+     0  /Group_Outputs/1/Output/meter/left
+     1  /Group_Outputs/1/Output/meter/right
+     2  /Group_Outputs/2/Output/meter/left
+     3  /Group_Outputs/2/Output/meter/right
+     4  /Group_Outputs/3/Output/meter/left
+     5  /Group_Outputs/3/Output/meter/right
+     6  /Group_Outputs/4/Output/meter/left
+     7  /Group_Outputs/4/Output/meter/right
+     8  /Group_Outputs/5/Output/meter/left
+     9  /Group_Outputs/5/Output/meter/right
+    10  /Group_Outputs/6/Output/meter/left
+    11  /Group_Outputs/6/Output/meter/right
+
+OTROS MENSAJES (los 60 más frecuentes de 176):
+     125 x  MESA->APP  /Input_Channels/N/fader  f   ej: [-0.9722]
+     120 x  APP->MESA  /Input_Channels/N/fader/?     ej: []
+      84 x  MESA->APP  /Input_Channels/N/CGs_level  f   ej: [0]
+      84 x  APP->MESA  /Input_Channels/N/CGs_level/?     ej: []
+      73 x  MESA->APP  /Console/Input_Channels/modes  iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii   ej: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+      73 x  APP->MESA  /Console/Input_Channels/modes/?     ej: []
+      72 x  MESA->APP  /Input_Channels/N/Channel_Input/name  s   ej: ["Ch 1"]
+      72 x  APP->MESA  /Input_Channels/N/Channel_Input/name/?     ej: []
+      54 x  MESA->APP  /Input_Channels/N/Aux_Send/N/send_on  f   ej: [0]
+      54 x  MESA->APP  /Input_Channels/N/Aux_Send/N/send_pan  f   ej: [0.5]
+      54 x  APP->MESA  /Input_Channels/N/Aux_Send/N/send_on/?     ej: []
+      54 x  APP->MESA  /Input_Channels/N/Aux_Send/N/send_level/?     ej: []
+      54 x  APP->MESA  /Input_Channels/N/Aux_Send/N/send_pan/?     ej: []
+      54 x  MESA->APP  /Input_Channels/N/Aux_Send/N/send_level  f   ej: [-150]
+      48 x  MESA->APP  /Control_Groups/N/fader  f   ej: [0]
+      48 x  APP->MESA  /Control_Groups/N/fader/?     ej: []
+      45 x  MESA->APP  /Group_Outputs/N/fader  f   ej: [-150]
+      40 x  APP->MESA  /Console/Session/Filename/?     ej: []
+      40 x  MESA->APP  /Console/Session/Filename  s   ej: ["session006.ses"]
+      36 x  APP->MESA  /Console/Input_Channels/N/group_sends/?  i   ej: [0]
+      36 x  MESA->APP  /Console/Input_Channels/N/group_sends  iiiiii   ej: [0, 0, 0, 0, 0, 1]
+      25 x  APP->MESA  /Group_Outputs/N/fader  f   ej: [0]
+      24 x  MESA->APP  /Input_Channels/N/Panner/pan  f   ej: [0.5]
+      24 x  MESA->APP  /Matrix_Outputs/N/fader  f   ej: [-150]
+      24 x  MESA->APP  /Input_Channels/N/mute  f   ej: [0]
+      24 x  APP->MESA  /Group_Outputs/N/fader/?     ej: []
+      24 x  APP->MESA  /Input_Channels/N/solo/?     ej: []
+      24 x  APP->MESA  /Input_Channels/N/Panner/pan/?     ej: []
+      24 x  MESA->APP  /Input_Channels/N/solo  f   ej: [0]
+      24 x  APP->MESA  /Matrix_Outputs/N/fader/?     ej: []
+      24 x  APP->MESA  /Input_Channels/N/mute/?     ej: []
+      15 x  MESA->APP  /Input_Channels/N/Dynamics/key_solo  f   ej: [0]
+      15 x  MESA->APP  /Input_Channels/N/Dynamics/comp_release_1  f   ej: [0.5]
+      15 x  APP->MESA  /Input_Channels/N/Dynamics/key_solo/?     ej: []
+      15 x  APP->MESA  /Input_Channels/N/Dynamics/comp_release_1/?     ej: []
+      12 x  MESA->APP  /Group_Outputs/N/Buss_Trim/name  s   ej: ["Grp 1"]
+      12 x  MESA->APP  /Input_Channels/N/Channel_Input/stereo_mode  f   ej: [1]
+      12 x  MESA->APP  /Input_Channels/N/CGs_mute  f   ej: [0]
+      12 x  APP->MESA  /Group_Outputs/N/Buss_Trim/name/?     ej: []
+      12 x  APP->MESA  /Group_Outputs/N/solo/?     ej: []
+      12 x  APP->MESA  /Input_Channels/N/Channel_Input/main/alt_in/?     ej: []
+      12 x  MESA->APP  /Console/Group_Outputs/N/group_sends  iiiiii   ej: [0, 0, 0, 0, 0, 0]
+      12 x  MESA->APP  /Aux_Outputs/N/fader  f   ej: [-150]
+      12 x  APP->MESA  /Aux_Outputs/N/fader/?     ej: []
+      12 x  APP->MESA  /Input_Channels/N/Channel_Input/stereo_mode/?     ej: []
+      12 x  APP->MESA  /Console/Group_Outputs/N/group_sends/?  i   ej: [0]
+      12 x  APP->MESA  /Input_Channels/N/CGs_mute/?     ej: []
+      12 x  MESA->APP  /Group_Outputs/N/solo  f   ej: [0]
+      12 x  MESA->APP  /Input_Channels/N/Channel_Input/main/alt_in  f   ej: [0]
+      11 x  APP->MESA  /Input_Channels/N/fader  f   ej: [-0.9722]
+      11 x  APP->MESA  /Console/Multis/?     ej: []
+      10 x  MESA->APP  /Input_Channels/N/Dynamics/comp_auto-gain_1  f   ej: [0]
+      10 x  MESA->APP  /Input_Channels/N/Dynamics/gate_freq_width  f   ej: [255]
+      10 x  APP->MESA  /Input_Channels/N/Dynamics/gate_hold/?     ej: []
+      10 x  APP->MESA  /Input_Channels/N/Dynamics/gate_in/?     ej: []
+      10 x  APP->MESA  /Input_Channels/N/Dynamics/comp_gain_4/?     ej: []
+      10 x  APP->MESA  /Input_Channels/N/Dynamics/gate_attack/?     ej: []
+      10 x  APP->MESA  /Input_Channels/N/Dynamics/gate_freq_width/?     ej: []
+      10 x  MESA->APP  /Input_Channels/N/Dynamics/comp_knee_1  f   ej: [0]
+      10 x  APP->MESA  /Input_Channels/N/Dynamics/comp_in/?     ej: []
+=========================================

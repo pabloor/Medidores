@@ -6,6 +6,12 @@
 //   La mesa responde con /Meters/values ,ii…  → pares (i, valor). El valor es un entero que empaqueta dos números de 16 bits:
 //        mitad alta = pico retenido, mitad baja = nivel actual, ambos en "−dB" (27 = −27 dB). 126 (0x7E) = silencio.
 //   La escala en dB no está calibrada contra un nivel de referencia: compárala con el medidor de la mesa.
+//   Medido en una Quantum (27-10-2026; detalles y scripts en tools/digico-pruebas):
+//   - Todos los medidores, de entradas y salidas, llegan en escalones de 3 dB (redondeando hacia 0 dB), también en la app
+//     oficial. post_meter = pre_meter + trim (dB con decimales): ver chLevel. A 0 dB (valor 0) la mesa deja de mandarlo: ver pollTop.
+//   - Rutas de medidor que anuncia la mesa por canal (consultando post_meter/?): Channel_Input/pre_meter y post_meter,
+//     fader_meter, Output/meter y Dynamics/input_meter (left/right; estas tres dan lo mismo que post_meter),
+//     EQ/GR_meter_1…4 y Dynamics/GR_meter_1…4 (reducción de ganancia, aún sin usar), Output/meter2, meter4, meter/centre, SL, SR, LFE.
 //
 // Protocolo anterior (suposición de la comunidad, que no funciona en una Quantum):
 // DiGiCo no publica medidores en su OSC general. Solo los envía por el protocolo de la app de iPad,
