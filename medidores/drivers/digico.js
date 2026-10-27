@@ -41,6 +41,7 @@ class DiGiCo extends EventEmitter {
     this.meterSeen = false; // ¿ha llegado algún medidor desde que se conectó?
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
     this.chSrc = 'post'; this.outSrc = 'fader'; // de dónde se piden los medidores: entradas post|fader, salidas fader|output
+    this.rise = 35;       // suavizado de la subida del medidor en la interfaz (ms, 0 = instantánea)
     this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
     this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
     this.series = null;       // grabación de una serie de medidores para el diagnóstico
@@ -434,6 +435,7 @@ class DiGiCo extends EventEmitter {
     if (this.count) this.subscribe(true);
     return `entradas ${this.chSrc}, salidas ${this.outSrc}`;
   }
+  setRise(v) { const n = Number(v); if (Number.isFinite(n) && n >= 0 && n <= 500) { this.rise = n; this.emit('meterRise', n); } return this.rise; }
   setFall(v) { const n = Number(v); if (Number.isFinite(n) && n >= 5 && n <= 400) { this.fall = n; this.emit('meterFall', n); } return this.fall; }
 
   // Graba unos segundos los valores que manda la mesa para un canal, para ver su ritmo y cómo se comportan las dos mitades.

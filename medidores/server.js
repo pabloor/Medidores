@@ -363,6 +363,9 @@ const server = http.createServer((req, res) => {
     if ((q.get('entradas') || q.get('salidas')) && typeof driver.setMeterSource === 'function') {
       return res.end(`Origen de los medidores: ${driver.setMeterSource(q.get('entradas'), q.get('salidas'))}\n(entradas: post | fader · salidas: fader | output)`);
     }
+    if (q.get('subida') != null && typeof driver.setRise === 'function') {
+      return res.end(`Suavizado de la subida: ${driver.setRise(q.get('subida'))} ms (0 = sin suavizado; por defecto 35)`);
+    }
     if (q.get('modo') || q.get('caida')) { // ajustes en directo del medidor (DiGiCo)
       if (typeof driver.setMeterMode === 'function') {
         if (q.get('modo')) driver.setMeterMode(q.get('modo'));
@@ -412,7 +415,7 @@ server.on('upgrade', (req, socket, head) => {
   else if (p === '/enlace' && ROLE === 'sala') linkWss.handleUpgrade(req, socket, head, (ws) => linkWss.emit('connection', ws, req));
   else socket.destroy();
 });
-const state = { config: null, status: { state: 'setup', detail: 'Elige tu mesa para empezar', key: 'st.setup' }, layout: null, levels: null, raw: null, control: null, meterFall: null };
+const state = { config: null, status: { state: 'setup', detail: 'Elige tu mesa para empezar', key: 'st.setup' }, layout: null, levels: null, raw: null, control: null, meterFall: null, meterRise: null };
 const q = (db) => (db <= -90 ? -90 : Math.round(db * 10) / 10); // décimas de dB: el umbral de saturación es exacto
 let driver = null;
 let dirty = false;
@@ -520,7 +523,7 @@ const infoMsg = () => ({ type: 'config', config: state.config, urls: lanUrls(), 
 
 function startDriver(cfg) {
   if (driver) { driver.removeAllListeners(); driver.stop(); driver = null; }
-  state.layout = state.levels = state.raw = state.control = state.meterFall = null;
+  state.layout = state.levels = state.raw = state.control = state.meterFall = state.meterRise = null;
   resetShowLog();
   lc.active = false; lc.items = [];
   broadcast({ type: 'clip-log', events: [] });
@@ -539,6 +542,8 @@ function startDriver(cfg) {
   driver.on('raw', (r) => { state.raw = r; });
   driver.on('meterPoint', (v) => { prefs.meterPoint = v; broadcast(meterPointMsg()); });
   // Control (solo drivers que lo admiten): estado completo y cambios sueltos.
+  if (driver.rise != null) state.meterRise = driver.rise; // suavizado de la subida: solo lo pide DiGiCo
+  driver.on('meterRise', (v) => { state.meterRise = v; broadcast({ type: 'meter-rise', value: v }); });
   driver.on('meterFall', (v) => { state.meterFall = v; broadcast({ type: 'meter-fall', value: v }); }); // caída del medidor ajustada desde el diagnóstico
   driver.on('control', (c) => { state.control = c; broadcast({ type: 'control', ...enc(c) }); });
   driver.on('param', (p) => {
@@ -576,6 +581,7 @@ wss.on('connection', (ws, req) => {
   if (state.layout) ws.send(JSON.stringify({ type: 'layout', ...state.layout }));
   if (state.control) ws.send(JSON.stringify({ type: 'control', ...enc(state.control) }));
   if (state.meterFall) ws.send(JSON.stringify({ type: 'meter-fall', value: state.meterFall }));
+  if (state.meterRise != null) ws.send(JSON.stringify({ type: 'meter-rise', value: state.meterRise }));
   ws.send(JSON.stringify(shureMsg()));
   ws.send(JSON.stringify(meterPointMsg()));
   ws.send(JSON.stringify({ type: 'clip-log', events: clipLog.slice(-300) }));
