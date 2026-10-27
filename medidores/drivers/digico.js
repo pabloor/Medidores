@@ -159,7 +159,7 @@ class DiGiCo extends EventEmitter {
     if (g === 'vca') return `/Control_Groups/${i + 1}`; // grupos de control (VCA)
     return i < this.out.aux ? `/Aux_Outputs/${i + 1}` : `/Group_Outputs/${i - this.out.aux + 1}`;
   }
-  meterPath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/post_meter/left` : `${this.stripBase(g, i)}/Buss_Trim/post_meter/left`; }
+  meterPath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/post_meter/left` : `${this.stripBase(g, i)}/fader_meter/left`; } // salidas: el medidor del fader, como pide la app oficial (/Group_Outputs/N/fader_meter/left)
   namePath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/name` : `${this.stripBase(g, i)}/Buss_Trim/name`; }
 
   // ---- Control: fader (dB), ON (= no mute) y, en las entradas, ganancia del previo (analog_gain, dB).

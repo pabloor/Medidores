@@ -100,7 +100,7 @@ sub parse_packet {
             } else { $note = 'formato raro'; @args = (unpack('H*', substr($rest, 0, 24))); }
         }
     }
-    if ($addr =~ m{^/Meters/request/(\d+)$} && @args && $args[0] =~ /^"(.*)"$/) { $req{$1} = $2; }
+    if ($addr =~ m{^/Meters/request/(\d+)$}) { my $id = $1; $req{$id} = $1 if @args && $args[0] =~ /^"(.*)"$/; }
     my $tmpl = $addr;
     $tmpl =~ s{/\d+(?=/|$)}{/N}g unless $addr =~ m{^/Meters/}; # /Meters/request/7 conserva el número
     my $key = join("\t", $dir, $tmpl, $tags . ($note ? " [$note]" : ''));
