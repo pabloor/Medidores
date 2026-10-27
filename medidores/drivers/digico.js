@@ -39,6 +39,8 @@ class DiGiCo extends EventEmitter {
     this.lastRx = 0;   // último medidor recibido
     this.lastAny = 0;  // último paquete de cualquier tipo recibido de la mesa
     this.meterSeen = false; // ¿ha llegado algún medidor desde que se conectó?
+    this.gaps = [];         // parones: más de 1 s sin valor nuevo de una tira con señal (hora, tira, segundos)
+    this.resubAt = [];      // cuándo se renovó la suscripción (para ver si coincide con los parones)
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
     this.chSrc = 'post'; this.outSrc = 'fader'; // de dónde se piden los medidores: entradas post|fader, salidas fader|output
     this.rise = 0;        // suavizado de la subida del medidor en la interfaz (ms, 0 = instantánea)
@@ -251,7 +253,7 @@ class DiGiCo extends EventEmitter {
   // Los medidores se piden con un número (id) por tira: 0..canales-1 las entradas, luego los buses y luego las matrices.
   // clear = false: vuelve a pedir los mismos medidores sin borrar antes la suscripción, para que no haya un hueco sin medidores.
   subscribe(refresh = false, clear = true) {
-    if (refresh) this.resubs++; else this.meterSeen = false;
+    if (refresh) { this.resubs++; this.resubAt.push(Date.now()); if (this.resubAt.length > 30) this.resubAt.shift(); } else this.meterSeen = false;
     if (clear) this.send('/Meters/clear');
     let id = 0, slot = 0;
     for (const [g, n] of [['ch', this.count], ['bus', this.nBus()], ['mtx', this.out.mtx]]) {
@@ -410,7 +412,9 @@ class DiGiCo extends EventEmitter {
       const id = Number(args[k]), v = Number(args[k + 1]);
       if (!Number.isInteger(id) || !Number.isFinite(v) || id < 0) continue;
       const lo = v & 0xffff, hi = (v >>> 16) & 0xffff;
-      this.lastPacked[id] = { hi, lo, t: Date.now() };
+      const before = this.lastPacked[id], nowT = Date.now();
+      if (before && before.hi < 100 && nowT - before.t > 1000) { this.gaps.push([nowT, id, (nowT - before.t) / 1000]); if (this.gaps.length > 40) this.gaps.shift(); }
+      this.lastPacked[id] = { hi, lo, t: nowT };
       if (this.series) this.series.ids.add(id);
       if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo, v]);
       const m = this.meterMode === 'mix' ? (hi + lo) / 2 : this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
@@ -626,6 +630,9 @@ class DiGiCo extends EventEmitter {
     L.push(`Adaptadores de este ordenador: ${ips.join(' | ') || 'ninguno'}`);
     L.push(`Canales detectados: ${this.count || 'aún no (se usará ' + this.fallbackCount + ' si la mesa no los dice)'}`);
     L.push(`Ajustes del medidor: modo ${this.meterMode}, caída ${this.fall} dB/s (cambiar: /diagnostico?modo=level|peak|max&caida=26; grabar: /diagnostico?serie=7)`);
+    const hm = (t) => new Date(t).toTimeString().slice(0, 8);
+    L.push(`Parones (más de 1 s sin valor nuevo de una tira con señal): ${this.gaps.length ? this.gaps.slice(-12).map((g) => `${hm(g[0])} tira ${g[1] + 1} ${g[2].toFixed(1)} s`).join(' | ') : 'ninguno'}`);
+    L.push(`Últimas renovaciones de la suscripción: ${this.resubAt.slice(-8).map(hm).join(' ') || 'ninguna'}`);
     L.push(`Medidores: ${this.meterSeen ? 'llegan' : 'aún no han llegado'} (último ${this.lastRx ? 'hace ' + Math.round((Date.now() - this.lastRx) / 1000) + ' s' : 'nunca'}); suscripción renovada ${this.resubs} veces`);
     L.push('');
     L.push(`ENVIADO a la mesa: ${this.tx.total} paquetes`);
