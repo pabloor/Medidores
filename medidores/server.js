@@ -371,7 +371,7 @@ const server = http.createServer((req, res) => {
       }
       return res.end('Esta mesa no tiene ajustes de medidor.');
     }
-    if (q.get('serie') && typeof driver.recordSeries === 'function') return driver.recordSeries(Number(q.get('serie'))).then((txt) => res.end(txt)).catch((e) => res.end(`La grabación falló: ${e.message}`));
+    if ((q.get('serie') || q.get('grupo')) && typeof driver.recordSeries === 'function') return driver.recordSeries(Number(q.get('serie')), 12000, Number(q.get('grupo')) || 0).then((txt) => res.end(txt)).catch((e) => res.end(`La grabación falló: ${e.message}`));
     if (q.get('medidor') && typeof driver.probeMeters === 'function') { // prueba de medidores sueltos (≈ 9 s)
       return driver.probeMeters(Number(q.get('medidor'))).then((txt) => res.end(txt)).catch((e) => res.end(`La prueba falló: ${e.message}`));
     }

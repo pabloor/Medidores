@@ -437,8 +437,9 @@ class DiGiCo extends EventEmitter {
   setFall(v) { const n = Number(v); if (Number.isFinite(n) && n >= 5 && n <= 400) { this.fall = n; this.emit('meterFall', n); } return this.fall; }
 
   // Graba unos segundos los valores que manda la mesa para un canal, para ver su ritmo y cómo se comportan las dos mitades.
-  async recordSeries(ch = 7, ms = 12000) {
-    const n = Math.min(Math.max(Math.round(ch) || 7, 1), this.count || 48);
+  // grupo: número de grupo (en vez de canal) para grabar el medidor de un grupo de salida.
+  async recordSeries(ch = 7, ms = 12000, grupo = 0) {
+    const n = grupo ? (this.count || 0) + (this.out.aux || 0) + Math.max(1, Math.round(grupo)) : Math.min(Math.max(Math.round(ch) || 7, 1), this.count || 48);
     // Si ya hay una grabación en marcha (p. ej. la página se abrió dos veces), se comparte en vez de pisarla.
     const mine = !this.series;
     if (mine) this.series = { id: n - 1, t0: Date.now(), rows: [], msgs: 0, ids: new Set() };
@@ -446,7 +447,7 @@ class DiGiCo extends EventEmitter {
     await new Promise((r) => setTimeout(r, ms));
     const { rows, msgs, ids } = ser;
     if (this.series === ser) this.series = null;
-    const out = [`SERIE DE MEDIDORES (canal ${n}, ${Math.round(ms / 1000)} s). Cada fila: tiempo (ms), mitad alta, mitad baja; los números son "−dB" (27 = −27 dB).`, ''];
+    const out = [`SERIE DE MEDIDORES (${grupo ? `grupo ${Math.round(grupo)}, tira ${n - 1}` : `canal ${n}`}, ${Math.round(ms / 1000)} s). Cada fila: tiempo (ms), mitad alta, mitad baja; los números son "−dB" (27 = −27 dB).`, ''];
     const last = this.lastPacked[n - 1];
     out.push(`Durante la grabación llegaron ${msgs} mensajes /Meters/values, con valores de ${ids.size} tiras distintas${ids.size ? ` (números de tira: ${[...ids].sort((a, b) => a - b).slice(0, 30).join(', ')}${ids.size > 30 ? '…' : ''})` : ''}.`);
     out.push(`Último valor recibido de este canal: ${last ? `alta ${last.hi}, baja ${last.lo} (hace ${Math.round((Date.now() - last.t) / 1000)} s)` : 'ninguno desde que se conectó'}. Valor que muestra la app ahora: ${this.values[n - 1] ?? '—'} dB.`, '');
