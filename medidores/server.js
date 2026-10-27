@@ -364,7 +364,7 @@ const server = http.createServer((req, res) => {
       return res.end(`Origen de los medidores: ${driver.setMeterSource(q.get('entradas'), q.get('salidas'))}\n(entradas: post | fader · salidas: fader | output)`);
     }
     if (q.get('subida') != null && typeof driver.setRise === 'function') {
-      return res.end(`Suavizado de la subida: ${driver.setRise(q.get('subida'))} ms (0 = sin suavizado; por defecto 35)`);
+      return res.end(`Suavizado de la subida: ${driver.setRise(q.get('subida'))} ms (0 = sin suavizado; por defecto 0)`);
     }
     if (q.get('modo') || q.get('caida')) { // ajustes en directo del medidor (DiGiCo)
       if (typeof driver.setMeterMode === 'function') {

@@ -41,7 +41,7 @@ class DiGiCo extends EventEmitter {
     this.meterSeen = false; // ¿ha llegado algún medidor desde que se conectó?
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
     this.chSrc = 'post'; this.outSrc = 'fader'; // de dónde se piden los medidores: entradas post|fader, salidas fader|output
-    this.rise = 35;       // suavizado de la subida del medidor en la interfaz (ms, 0 = instantánea)
+    this.rise = 0;        // suavizado de la subida del medidor en la interfaz (ms, 0 = instantánea)
     this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
     this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
     this.series = null;       // grabación de una serie de medidores para el diagnóstico
