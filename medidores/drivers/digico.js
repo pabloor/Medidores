@@ -243,9 +243,10 @@ class DiGiCo extends EventEmitter {
 
   // refresh = true: renueva la suscripción sin tocar el estado (niveles, canales, "medidores vistos").
   // Los medidores se piden con un número (id) por tira: 0..canales-1 las entradas, luego los buses y luego las matrices.
-  subscribe(refresh = false) {
+  // clear = false: vuelve a pedir los mismos medidores sin borrar antes la suscripción, para que no haya un hueco sin medidores.
+  subscribe(refresh = false, clear = true) {
     if (refresh) this.resubs++; else this.meterSeen = false;
-    this.send('/Meters/clear');
+    if (clear) this.send('/Meters/clear');
     let id = 0, slot = 0;
     for (const [g, n] of [['ch', this.count], ['bus', this.nBus()], ['mtx', this.out.mtx]]) {
       for (let i = 0; i < n; i++, id++) {
@@ -499,7 +500,8 @@ class DiGiCo extends EventEmitter {
     if (talking && this.subscribedAt && this.count) {
       // Renovar la suscripción (sin reiniciar nada): periódicamente y si la mesa contesta pero no manda medidores.
       const metersQuiet = !this.meterSeen || now - this.lastRx > 10000;
-      if (now - this.subscribedAt > 30000 || (metersQuiet && now - this.subscribedAt > 10000)) this.subscribe(true);
+      if (metersQuiet && now - this.subscribedAt > 10000) this.subscribe(true);
+      else if (now - this.subscribedAt > 30000) this.subscribe(true, false); // renovación periódica sin hueco
     }
     // La mesa no contesta desde hace 30 s: volver a presentarse desde cero (por si se reinició).
     if (!talking && this.subscribedAt && now - this.subscribedAt > 30000) {
