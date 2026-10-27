@@ -10,8 +10,14 @@ sock.on('message', (b) => {
   const m = osc.decode(b);
   if (m.address === '/Console/Name/?') reply('/Console/Name', ['SD12 12345']);
   else if (m.address === '/Console/Input_Channels/?') reply('/Console/Input_Channels', [24]);
+  else if (process.env.METERQ && /\/post_meter\/\?$/.test(m.address)) {
+    // METERQ=1: contesta a la consulta de medidor con un OSC "sin etiquetas" (dirección + float), como DiGiCo
+    const addr = Buffer.from(m.address.slice(0, -2) + '\0'); const pad = (x) => Buffer.concat([x, Buffer.alloc((4 - (x.length % 4)) % 4)]);
+    const f = Buffer.alloc(4); f.writeFloatBE(0.2);
+    sock.send(Buffer.concat([pad(addr), f]), 9000, HOST);
+  }
   else if (m.address === '/Meters/clear') subs.clear();
-  else if (m.address.endsWith('/post_meter')) subs.add(m.args[0]);
+  else if (m.address.endsWith('/post_meter')) { if (!process.env.NOMETERS) subs.add(m.args[0]); } // NOMETERS=1: no manda medidores, como la mesa de un usuario
   else if (m.address.endsWith('/name/?')) reply(m.address.slice(0, -2), [`Canal ${m.address.split('/')[2]}`]);
 });
 setInterval(() => {

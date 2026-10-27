@@ -28,7 +28,8 @@ class DiGiCo extends EventEmitter {
     this.values = [];
     this.seen = new Set();
     this.timers = [];
-    this.lastRx = 0;
+    this.lastRx = 0;   // último medidor recibido
+    this.lastAny = 0;  // último paquete de cualquier tipo recibido de la mesa
     // Diagnóstico: qué se ha enviado a la mesa y qué ha llegado (se consulta en /diagnostico).
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
@@ -95,7 +96,7 @@ class DiGiCo extends EventEmitter {
 
   handshake() {
     this.probeRoute();
-    this.emit('status', { state: 'connecting', detail: `Contactando con la DiGiCo en ${this.ip} (envío ${this.sendPort}, escucha ${this.listenPort}) · red: ${this.netLabel()}…`, key: 'st.digicoConnecting', p: { ip: this.ip, send: this.sendPort, listen: this.listenPort, net: this.netLabel() } });
+    if (!this.state) this.emit('status', { state: 'connecting', detail: `Contactando con la DiGiCo en ${this.ip} (envío ${this.sendPort}, escucha ${this.listenPort}) · red: ${this.netLabel()}…`, key: 'st.digicoConnecting', p: { ip: this.ip, send: this.sendPort, listen: this.listenPort, net: this.netLabel() } });
     ['/Console/Name/?', '/Console/Input_Channels/?', '/Console/Channels/?'].forEach((q, i) => setTimeout(() => this.send(q), i * 50));
     clearTimeout(this.countTimer);
     // Si la mesa no dice cuántos canales tiene, se usa --channels.
@@ -121,14 +122,50 @@ class DiGiCo extends EventEmitter {
     this.subscribedAt = Date.now();
   }
 
+  // DiGiCo manda algunos medidores como un OSC "sin etiquetas": dirección + floats directamente, sin ",f".
+  // Devuelve { address, floats } si el paquete es de ese tipo, y null si no.
+  parseUntaggedMeter(buf) {
+    const end = buf.indexOf(0);
+    if (end < 1 || buf[0] !== 0x2f) return null; // la dirección empieza por "/"
+    const address = buf.toString('utf8', 0, end);
+    if (!/meter/i.test(address)) return null;
+    const off = (end + 4) & ~3;
+    const rest = buf.length - off;
+    if (rest < 4 || rest % 4 !== 0 || rest > 32 || buf[off] === 0x2c) return null; // 0x2c = "," : sí tiene etiquetas
+    const floats = [];
+    for (let p = off; p < buf.length; p += 4) floats.push(buf.readFloatBE(p));
+    return { address, floats };
+  }
+
   onMessage(buf, rinfo) {
     this.rx.total++;
+    this.lastAny = Date.now();
     this.rx.last = Date.now();
     if (rinfo) { const s = `${rinfo.address}:${rinfo.port}`; this.rx.bySource.set(s, (this.rx.bySource.get(s) || 0) + 1); }
+    const um = this.parseUntaggedMeter(buf);
+    if (um) {
+      const key = um.address.replace(/\/\d+\//g, '/N/');
+      const e = this.rx.byAddress.get(key) || { n: 0, sample: '' };
+      e.n++;
+      if (!e.sample) e.sample = `(sin etiquetas) ${JSON.stringify(um.floats.map((f) => Math.round(f * 1000) / 1000))}`;
+      this.rx.byAddress.set(key, e);
+      if (this.probeLog && this.probeLog.items.length < 8) this.probeLog.items.push(`${um.address}  (medidor sin etiquetas) ${JSON.stringify(um.floats.map((f) => Math.round(f * 1000) / 1000))}`);
+      // Medidor de un canal de entrada: /Input_Channels/N/…meter → el primer float es el nivel.
+      const cm = /^\/Input_Channels\/(\d+)\/.*(post|pre)_meter$/i.exec(um.address);
+      if (cm && this.count && um.floats.length) {
+        const i = Number(cm[1]);
+        if (i >= 1 && i <= this.count) { this.lastRx = Date.now(); this.values[i - 1] = Math.max(-90, Math.min(20, this.toDb(um.floats[0]))); this.emit('levels', [this.values]); }
+      }
+      return;
+    }
     let m;
     try { m = osc.decode(buf); } catch {
+      if (this.probeLog && this.probeLog.items.length < 8) this.probeLog.items.push(`(no es OSC) ${buf.length} bytes: ${buf.subarray(0, 40).toString('hex')}`);
       if (this.rx.bad.length < 5) this.rx.bad.push(`${buf.length} bytes: ${buf.subarray(0, 48).toString('hex')}`);
       return;
+    }
+    if (this.probeLog && this.probeLog.items.length < 8 && !/^\/Console\//.test(m.address) && !/\/name$/.test(m.address)) {
+      this.probeLog.items.push(`${m.address} ,${m.tags} ${JSON.stringify(m.args.map((a) => (Buffer.isBuffer(a) ? `<${a.length} bytes>` : a))).slice(0, 100)}`);
     }
     {
       // Parámetros por canal (fader, mute, trim…): se guarda el último valor de cada canal y su tipo, para conocer la escala.
@@ -207,17 +244,55 @@ class DiGiCo extends EventEmitter {
       this.count = 0;
       this.handshake();
     }
-    const state = alive ? 'connected' : 'lost';
+    // Tres situaciones: llegan medidores; la mesa contesta pero no manda medidores; la mesa no contesta.
+    const talking = Date.now() - this.lastAny < 45000; // el saludo se repite cada 30 s: ahí contesta aunque nadie toque nada
+    const state = alive ? 'connected' : talking ? 'nometers' : 'lost';
     if (state === this.state) return;
     this.state = state;
-    this.emit('status', {
-      state,
-      detail: alive
-        ? `${this.consoleName ? 'DiGiCo ' + this.consoleName : 'DiGiCo'} (${this.ip})`
-        : `Sin medidores de ${this.ip}. Revisa External Control en la mesa (dispositivo "DiGiCo Pad", puertos ${this.sendPort}/${this.listenPort}).`,
-      key: alive ? 'st.connected' : 'st.digicoLost',
-      p: { name: this.consoleName ? `DiGiCo ${this.consoleName}` : 'DiGiCo', ip: this.ip, send: this.sendPort, listen: this.listenPort, net: this.netLabel() },
+    const name = this.consoleName ? `DiGiCo ${this.consoleName}` : 'DiGiCo';
+    const p = { name, ip: this.ip, send: this.sendPort, listen: this.listenPort, net: this.netLabel() };
+    if (state === 'connected') this.emit('status', { state: 'connected', detail: `${name} (${this.ip})`, key: 'st.connected', p });
+    else if (state === 'nometers') this.emit('status', { state: 'connected', detail: `${name} (${this.ip}): conectada, pero la mesa aún no envía medidores`, key: 'st.digicoNoMeters', p });
+    else this.emit('status', {
+      state: 'lost',
+      detail: `Sin respuesta de ${this.ip}. Revisa External Control en la mesa (dispositivo "DiGiCo Pad", puertos ${this.sendPort}/${this.listenPort}).`,
+      key: 'st.digicoLost', p,
     });
+  }
+
+  // Prueba de medidores: manda varias formas posibles de pedirlos (todas de lectura) y anota qué contesta la mesa.
+  // Se lanza desde /diagnostico?probar=1&canal=7, con señal en ese canal.
+  async probe(ch = 7) {
+    const n = Math.min(Math.max(Math.round(ch) || 7, 1), this.count || 48);
+    const base = `/Input_Channels/${n}/Channel_Input`;
+    const cands = [
+      ['consulta  …/post_meter/?', `${base}/post_meter/?`, []],
+      ['consulta  …/pre_meter/?', `${base}/pre_meter/?`, []],
+      ['post_meter sin argumentos', `${base}/post_meter`, []],
+      [`post_meter con (canal, 1)  [el que usa la app]`, `${base}/post_meter`, [n, 1]],
+      ['post_meter con (1)', `${base}/post_meter`, [1]],
+      ['post_meter con (1.0 decimal)', `${base}/post_meter`, [osc.float(1)]],
+      ['pre_meter con (canal, 1)', `${base}/pre_meter`, [n, 1]],
+      [`/Meters/request/${n} sin argumentos`, `/Meters/request/${n}`, []],
+      ['/Meters/request/1 con la ruta del medidor', '/Meters/request/1', [`${base}/post_meter`]],
+      ['/Meters/request/1 con (canal)', '/Meters/request/1', [n]],
+      ['salida Aux 1: consulta …/Buss_Trim/post_meter/?', '/Aux_Outputs/1/Buss_Trim/post_meter/?', []],
+    ];
+    const out = [`PRUEBA DE MEDIDORES (canal ${n}; con señal en ese canal). Todas las peticiones son de lectura.`,
+      'Nota: los mensajes de fader, mute o trim que aparezcan sueltos son cambios hechos en la mesa durante la prueba, no respuestas.', ''];
+    for (const [label, addr, args] of cands) {
+      this.probeLog = { items: [] };
+      this.send(addr, args);
+      await new Promise((r) => setTimeout(r, 600));
+      const items = this.probeLog.items;
+      this.probeLog = null;
+      out.push(`▶ ${label}`);
+      out.push(`    envío: ${addr} ${JSON.stringify(args.map((a) => (a && a.osc ? `${a.v} (float)` : a)))}`);
+      if (!items.length) out.push('    respuesta: ninguna');
+      else items.forEach((it) => out.push(`    respuesta: ${it}`));
+    }
+    out.push('');
+    return out.join('\n');
   }
 
   // Texto para ver qué pasa con la mesa (se abre desde la app en /diagnostico).
@@ -225,6 +300,7 @@ class DiGiCo extends EventEmitter {
     const L = [];
     const ago = (t) => (t ? `hace ${Math.round((Date.now() - t) / 1000)} s` : 'nunca');
     L.push('DIAGNÓSTICO DiGiCo');
+    L.push('(Para probar formas de pedir los medidores: /diagnostico?probar=1&canal=7, con señal en ese canal)');
     L.push(`IP de la mesa: ${this.ip}`);
     L.push(`La app ENVÍA al puerto ${this.sendPort} de la mesa (en la mesa: "Receive" = ${this.sendPort})`);
     L.push(`La app ESCUCHA en el puerto ${this.listenPort} (en la mesa: "Send" = ${this.listenPort})`);

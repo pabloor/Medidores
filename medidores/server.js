@@ -358,7 +358,12 @@ const server = http.createServer((req, res) => {
   if (p === '/diagnostico') {
     if (!isLoopback(req.socket)) { res.writeHead(403); return res.end(); }
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(driver && typeof driver.diagnostics === 'function' ? driver.diagnostics() : 'La mesa conectada no ofrece diagnóstico.');
+    if (!driver || typeof driver.diagnostics !== 'function') return res.end('La mesa conectada no ofrece diagnóstico.');
+    const q = new URL(req.url, 'http://x').searchParams;
+    if (q.get('probar') && typeof driver.probe === 'function') { // prueba activa (tarda unos segundos)
+      return driver.probe(Number(q.get('canal'))).then((txt) => res.end(txt + '\n' + driver.diagnostics())).catch((e) => res.end(`La prueba falló: ${e.message}`));
+    }
+    return res.end(driver.diagnostics());
   }
   if (p === '/qr.svg') {
     const i = Number(new URL(req.url, 'http://x').searchParams.get('i')) || 0;
