@@ -30,7 +30,7 @@ function readStr(buf, off) {
 function decode(buf) {
   let off, address, tags;
   [address, off] = readStr(buf, 0);
-  if (off >= buf.length) return { address, args: [] };
+  if (off >= buf.length) return { address, args: [], tags: '' };
   [tags, off] = readStr(buf, off);
   const args = [];
   for (const t of tags.slice(1)) {
@@ -42,7 +42,7 @@ function decode(buf) {
       args.push(buf.subarray(off, off + len)); off += align4(len);
     } else break;
   }
-  return { address, args };
+  return { address, args, tags: tags.slice(1) };
 }
 
 module.exports = { encode, decode, float };

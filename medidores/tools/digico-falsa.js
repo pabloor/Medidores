@@ -20,4 +20,13 @@ setInterval(() => {
   for (const id of subs) { args.push(id, Math.pow(10, (-30 + 20 * Math.sin(t * 2 + id * 0.4)) / 20)); }
   sock.send(osc.encode('/Meters/values', args), 9000, HOST);
 }, 50);
+// Cada 2 s "alguien" toca la mesa: fader, mute y ganancia (trim) de algunos canales, como llegan de una mesa real.
+let k = 0;
+setInterval(() => {
+  k++;
+  sock.send(osc.encode('/Input_Channels/3/fader', [osc.float(k % 2 ? -10 : 0)]), 9000, HOST);
+  sock.send(osc.encode('/Input_Channels/5/mute', [k % 2]), 9000, HOST);
+  sock.send(osc.encode('/Input_Channels/2/Channel_Input/trim', [osc.float(0.6315789222717285)]), 9000, HOST);
+}, 2000);
+
 sock.bind(8000, () => console.log('DiGiCo falsa escuchando en UDP 8000 (responde a 9000)'));

@@ -33,6 +33,7 @@ class DiGiCo extends EventEmitter {
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
     this.rx = { total: 0, bySource: new Map(), byAddress: new Map(), bad: [], last: 0 };
+    this.chVals = new Map(); // parámetro -> Map(canal -> { v, tags, t, n }): último valor que la mesa ha enviado de cada canal
   }
 
   start() {
@@ -130,6 +131,17 @@ class DiGiCo extends EventEmitter {
       return;
     }
     {
+      // Parámetros por canal (fader, mute, trim…): se guarda el último valor de cada canal y su tipo, para conocer la escala.
+      const cv = /^\/Input_Channels\/(\d+)\/(.+)$/.exec(m.address);
+      if (cv && !/\/name$/.test(m.address) && !/post_meter$/.test(m.address)) {
+        if (!this.chVals.has(cv[2]) && this.chVals.size >= 40) { /* demasiados parámetros distintos: se ignora el resto */ }
+        else {
+          const per = this.chVals.get(cv[2]) || new Map();
+          const e = per.get(Number(cv[1])) || { n: 0 };
+          per.set(Number(cv[1]), { v: m.args.map((a) => (Buffer.isBuffer(a) ? `<${a.length} bytes>` : a)), tags: m.tags, t: Date.now(), n: e.n + 1 });
+          this.chVals.set(cv[2], per);
+        }
+      }
       const key = m.address.replace(/\/\d+\//g, '/N/');
       const e = this.rx.byAddress.get(key) || { n: 0, sample: '' };
       e.n++;
@@ -190,7 +202,7 @@ class DiGiCo extends EventEmitter {
   checkAlive() {
     const alive = Date.now() - this.lastRx < 3000;
     // Sin medidores tras suscribir: repetir el saludo cada 8 s.
-    if (!alive && this.subscribedAt && Date.now() - this.subscribedAt > 8000) {
+    if (!alive && this.subscribedAt && Date.now() - this.subscribedAt > 30000) { // cada 30 s, no cada 8: no saturar la mesa si no manda medidores
       this.subscribedAt = 0;
       this.count = 0;
       this.handshake();
@@ -234,6 +246,16 @@ class DiGiCo extends EventEmitter {
     L.push(`RECIBIDO de la mesa: ${this.rx.total} paquetes (el último: ${ago(this.rx.last)})`);
     for (const [s, n] of this.rx.bySource) L.push(`  desde ${s}: ${n}`);
     for (const [a, e] of this.rx.byAddress) L.push(`  ${String(e.n).padStart(5)} × ${a}   ej: ${e.sample}`);
+    if (this.chVals.size) {
+      L.push('');
+      L.push('ÚLTIMO VALOR DE CADA CANAL (los 12 más recientes por parámetro; entre corchetes el tipo OSC: f = decimal, i = entero, s = texto)');
+      for (const [param, per] of this.chVals) {
+        const rows = [...per.entries()].sort((a, b) => b[1].t - a[1].t).slice(0, 12);
+        const tags = [...new Set(rows.map(([, e]) => e.tags))].map((x) => `,${x}`).join(' ');
+        L.push(`  ${param}  [${tags}]`);
+        for (const [ch, e] of rows) L.push(`     canal ${String(ch).padStart(2)}: ${JSON.stringify(e.v)}   (${e.n} cambios, ${Math.round((Date.now() - e.t) / 1000)} s)`);
+      }
+    }
     if (this.rx.bad.length) { L.push('  Paquetes que no son OSC (primeros bytes en hexadecimal):'); this.rx.bad.forEach((b) => L.push(`    ${b}`)); }
     L.push('');
     L.push('QUÉ SIGNIFICA');
