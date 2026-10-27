@@ -43,6 +43,7 @@ class DiGiCo extends EventEmitter {
     this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
     this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
     this.series = null;       // grabación de una serie de medidores para el diagnóstico
+    this.lastPacked = [];     // último valor crudo recibido de cada tira: { hi, lo, t }
     // Diagnóstico: qué se ha enviado a la mesa y qué ha llegado (se consulta en /diagnostico).
     this.startedAt = Date.now();
     this.tx = { total: 0, byAddress: new Map(), errors: [] };
@@ -397,10 +398,13 @@ class DiGiCo extends EventEmitter {
     this.meterSeen = true;
     this.raw = this.raw || { '/Meters/values': [] };
     const nb = this.nBus(), nm = this.out.mtx;
+    if (this.series) this.series.msgs++;
     for (let k = 0; k + 1 < args.length; k += 2) {
       const id = Number(args[k]), v = Number(args[k + 1]);
       if (!Number.isInteger(id) || !Number.isFinite(v) || id < 0) continue;
       const lo = v & 0xffff, hi = (v >>> 16) & 0xffff;
+      this.lastPacked[id] = { hi, lo, t: Date.now() };
+      if (this.series) this.series.ids.add(id);
       if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo]);
       const m = this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
       const db = -m;
@@ -422,11 +426,16 @@ class DiGiCo extends EventEmitter {
   // Graba unos segundos los valores que manda la mesa para un canal, para ver su ritmo y cómo se comportan las dos mitades.
   async recordSeries(ch = 7, ms = 12000) {
     const n = Math.min(Math.max(Math.round(ch) || 7, 1), this.count || 48);
-    this.series = { id: n - 1, t0: Date.now(), rows: [] };
+    this.series = { id: n - 1, t0: Date.now(), rows: [], msgs: 0, ids: new Set() };
     await new Promise((r) => setTimeout(r, ms));
-    const { rows } = this.series; this.series = null;
+    const { rows, msgs, ids } = this.series; this.series = null;
     const out = [`SERIE DE MEDIDORES (canal ${n}, ${Math.round(ms / 1000)} s). Cada fila: tiempo (ms), mitad alta, mitad baja; los números son "−dB" (27 = −27 dB).`, ''];
-    if (!rows.length) return out.concat('No ha llegado ningún valor de ese canal (¿hay señal? ¿llegan medidores?)').join('\n');
+    const last = this.lastPacked[n - 1];
+    out.push(`Durante la grabación llegaron ${msgs} mensajes /Meters/values, con valores de ${ids.size} tiras distintas${ids.size ? ` (números de tira: ${[...ids].sort((a, b) => a - b).slice(0, 30).join(', ')}${ids.size > 30 ? '…' : ''})` : ''}.`);
+    out.push(`Último valor recibido de este canal: ${last ? `alta ${last.hi}, baja ${last.lo} (hace ${Math.round((Date.now() - last.t) / 1000)} s)` : 'ninguno desde que se conectó'}. Valor que muestra la app ahora: ${this.values[n - 1] ?? '—'} dB.`, '');
+    if (!rows.length) return out.concat([
+      'No ha llegado NINGÚN valor de este canal en esos segundos: la mesa no ha mandado ningún cambio de su medidor.',
+      ids.size ? '(Pero sí de otros canales: la suscripción funciona; este canal no ha cambiado de valor.)' : '(Tampoco de otros canales: puede que la mesa no esté mandando medidores ahora.)']).join('\n');
     const stat = (a) => { const s = [...a].sort((x, y) => x - y); return `mín ${s[0]}  mediana ${s[s.length >> 1]}  máx ${s[s.length - 1]}  distintos ${new Set(a).size}`; };
     const dts = rows.slice(1).map((r, k) => r[0] - rows[k][0]);
     out.push(`Muestras: ${rows.length} (${(rows.length / (ms / 1000)).toFixed(1)} por segundo)`);
