@@ -55,7 +55,7 @@ class DiGiCo extends EventEmitter {
     this.rx = { total: 0, bundles: 0, bySource: new Map(), byAddress: new Map(), bad: [], last: 0 };
     this.out = { aux: 0, grp: 0, mtx: 0, cg: 0 }; // salidas y grupos de control (VCA) que dice tener la mesa
     this.vcaNames = {};
-    this.busVals = []; this.mtxVals = []; this.outNames = { aux: {}, grp: {}, mtx: {} };
+    this.busVals = []; this.mtxVals = []; this.busL = []; this.busR = []; this.mtxL = []; this.mtxR = []; this.outNames = { aux: {}, grp: {}, mtx: {} };
     this.cs = null;        // control: { ch, bus, mtx } con [{ fader, on, gain }] por tira
     this.ctlReady = false;
     this.pendSets = new Map();
@@ -159,7 +159,10 @@ class DiGiCo extends EventEmitter {
     const fit = (arr, n) => { const out = new Array(n).fill(-90); for (let i = 0; i < Math.min(n, arr.length); i++) out[i] = arr[i]; return out; };
     this.busVals = fit(this.busVals, this.nBus());
     this.mtxVals = fit(this.mtxVals, this.out.mtx);
+    this.busL = []; this.busR = []; this.mtxL = []; this.mtxR = []; // nivel de cada lado; se muestra el mayor
   }
+  // Ids del lado derecho de las salidas: van detrás de todos los izquierdos (entradas, buses, matrices).
+  rightBase() { return this.count + this.nBus() + this.out.mtx; }
   // Ruta base de una tira: /Input_Channels/N, /Aux_Outputs/N, /Group_Outputs/N o /Matrix_Outputs/N.
   stripBase(g, i) {
     if (g === 'ch') return `/Input_Channels/${i + 1}`;
@@ -167,11 +170,13 @@ class DiGiCo extends EventEmitter {
     if (g === 'vca') return `/Control_Groups/${i + 1}`; // grupos de control (VCA)
     return i < this.out.aux ? `/Aux_Outputs/${i + 1}` : `/Group_Outputs/${i - this.out.aux + 1}`;
   }
-  meterPath(g, i) {
+  // side: 'left' o 'right'. Las entradas solo se piden por la izquierda; las salidas por los dos lados (ver subscribe).
+  meterPath(g, i, side = 'left') {
     if (g === 'ch') return this.chSrc === 'fader' ? `${this.stripBase(g, i)}/fader_meter/left` : `${this.stripBase(g, i)}/Channel_Input/post_meter/left`;
-    return this.outSrc === 'output' ? `${this.stripBase(g, i)}/Output/meter/left` : `${this.stripBase(g, i)}/fader_meter/left`;
+    return this.outSrc === 'output' ? `${this.stripBase(g, i)}/Output/meter/${side}` : `${this.stripBase(g, i)}/fader_meter/${side}`;
   }
-  // salidas: el medidor del fader, como pide la app oficial (/Group_Outputs/N/fader_meter/left)
+  // salidas: por defecto el medidor del fader (fader_meter); con /diagnostico se puede cambiar a Output/meter.
+  // En una captura de la app oficial (Quantum, oct. 2026) la vista de grupos pedía /Group_Outputs/N/Output/meter/left y /right.
   namePath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/name` : `${this.stripBase(g, i)}/Buss_Trim/name`; }
 
   // ---- Control: fader (dB), ON (= no mute) y, en las entradas, ganancia del previo (analog_gain, dB).
@@ -267,6 +272,14 @@ class DiGiCo extends EventEmitter {
           this.send(`/Meters/request/${myId}`, [path]);
           if (clear) this.send(`${name}/?`); // la renovación periódica (sin borrar) no vuelve a pedir los nombres
         }, 20 + (++slot) * 8); // espaciado: se sabe que las SD pierden ráfagas
+      }
+    }
+    // Lado derecho de buses y matrices, como hace la app oficial con los grupos. En una salida mono la mesa no lo manda
+    // y el medidor se queda con el izquierdo.
+    for (const [g, n] of [['bus', this.nBus()], ['mtx', this.out.mtx]]) {
+      for (let i = 0; i < n; i++, id++) {
+        const myId = id, path = this.meterPath(g, i, 'right');
+        setTimeout(() => this.send(`/Meters/request/${myId}`, [path]), 20 + (++slot) * 8);
       }
     }
     this.subscribedAt = Date.now();
@@ -424,9 +437,13 @@ class DiGiCo extends EventEmitter {
       const m = this.meterMode === 'mix' ? (hi + lo) / 2 : this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
       const db = -m - (id < this.count && m < 100 ? this.chOff : 0);
       const val = Math.max(-90, Math.min(20, db));
+      // Salidas: id izquierdo = rb - (nb + nm) + j, id derecho = rb + j; se muestra el lado más alto.
+      const rb = this.rightBase(), side = (L, R, j, out) => { const r = R[j], l = L[j]; out[j] = Math.max(l == null ? -90 : l, r == null ? -90 : r); };
       if (id < this.count) this.values[id] = val;
-      else if (id < this.count + nb) this.busVals[id - this.count] = val;
-      else if (id < this.count + nb + nm) this.mtxVals[id - this.count - nb] = val;
+      else if (id < this.count + nb) { this.busL[id - this.count] = val; side(this.busL, this.busR, id - this.count, this.busVals); }
+      else if (id < rb) { this.mtxL[id - this.count - nb] = val; side(this.mtxL, this.mtxR, id - this.count - nb, this.mtxVals); }
+      else if (id < rb + nb) { this.busR[id - rb] = val; side(this.busL, this.busR, id - rb, this.busVals); }
+      else if (id < rb + nb + nm) { this.mtxR[id - rb - nb] = val; side(this.mtxL, this.mtxR, id - rb - nb, this.mtxVals); }
       else continue;
       this.raw['/Meters/values'][id] = db;
     }

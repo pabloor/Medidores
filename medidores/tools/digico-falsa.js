@@ -4,6 +4,7 @@ const dgram = require('dgram');
 const osc = require('../drivers/osc');
 const sock = dgram.createSocket('udp4');
 const subs = new Set();
+const paths = new Map(); // id -> ruta pedida (para dar señal a un lado concreto de una salida)
 let lastReq = 0;
 const initial = new Set(); // ids recién pedidos: se les manda su valor actual una vez, como hace la mesa
 const ctl = new Map(); // valores de control (fader, mute, ganancia) que ha fijado la app
@@ -33,7 +34,7 @@ sock.on('message', (b) => {
   else if (m.address === '/Meters/clear') subs.clear();
   else if (/^\/Meters\/request\/\d+$/.test(m.address) && typeof m.args[0] === 'string') {
     // NOMETERS=1: no manda medidores. EXPIRE=<s>: la suscripción caduca a los <s> segundos de la última petición.
-    if (!process.env.NOMETERS) { subs.add(Number(m.address.split('/').pop())); lastReq = Date.now(); initial.add(Number(m.address.split('/').pop())); }
+    if (!process.env.NOMETERS) { subs.add(Number(m.address.split('/').pop())); paths.set(Number(m.address.split('/').pop()), m.args[0]); lastReq = Date.now(); initial.add(Number(m.address.split('/').pop())); }
   }
   else if (/^\/(Aux_Outputs|Group_Outputs|Matrix_Outputs)\/\d+\/Buss_Trim\/name\/\?$/.test(m.address)) {
     const [, kind, n] = m.address.split('/'); reply(m.address.slice(0, -2), [`${kind === 'Aux_Outputs' ? 'Aux' : kind === 'Group_Outputs' ? 'Grp' : 'Mtx'} ${n}`]);
@@ -57,6 +58,8 @@ setInterval(() => {
       const hold = Math.max(18, Math.round(18 + ((t * 4) % 12)));
       return (hold << 16) | lvl;
     }
+    // el grupo 2 tiene señal solo por la derecha (-20 dB): Medidores debe mostrar el lado más alto
+    if (/^\/Group_Outputs\/2\/.*\/right$/.test(paths.get(id) || '')) return (20 << 16) | 20;
     return (126 << 16) | 126;
   };
   for (let i = 0; i < ids.length; i += 24) {
