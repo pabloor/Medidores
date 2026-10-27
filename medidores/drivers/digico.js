@@ -40,6 +40,7 @@ class DiGiCo extends EventEmitter {
     this.lastAny = 0;  // último paquete de cualquier tipo recibido de la mesa
     this.meterSeen = false; // ¿ha llegado algún medidor desde que se conectó?
     this.resubs = 0;        // cuántas veces se ha renovado la suscripción de medidores
+    this.chSrc = 'post'; this.outSrc = 'fader'; // de dónde se piden los medidores: entradas post|fader, salidas fader|output
     this.meterMode = 'level'; // qué mitad del valor de la mesa se muestra: level (baja), peak (alta) o max (la mayor de las dos)
     this.fall = 26;           // caída del medidor en la app, en dB/s (la app usa 26 para todas las mesas)
     this.series = null;       // grabación de una serie de medidores para el diagnóstico
@@ -159,7 +160,11 @@ class DiGiCo extends EventEmitter {
     if (g === 'vca') return `/Control_Groups/${i + 1}`; // grupos de control (VCA)
     return i < this.out.aux ? `/Aux_Outputs/${i + 1}` : `/Group_Outputs/${i - this.out.aux + 1}`;
   }
-  meterPath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/post_meter/left` : `${this.stripBase(g, i)}/fader_meter/left`; } // salidas: el medidor del fader, como pide la app oficial (/Group_Outputs/N/fader_meter/left)
+  meterPath(g, i) {
+    if (g === 'ch') return this.chSrc === 'fader' ? `${this.stripBase(g, i)}/fader_meter/left` : `${this.stripBase(g, i)}/Channel_Input/post_meter/left`;
+    return this.outSrc === 'output' ? `${this.stripBase(g, i)}/Output/meter/left` : `${this.stripBase(g, i)}/fader_meter/left`;
+  }
+  // salidas: el medidor del fader, como pide la app oficial (/Group_Outputs/N/fader_meter/left)
   namePath(g, i) { return g === 'ch' ? `${this.stripBase(g, i)}/Channel_Input/name` : `${this.stripBase(g, i)}/Buss_Trim/name`; }
 
   // ---- Control: fader (dB), ON (= no mute) y, en las entradas, ganancia del previo (analog_gain, dB).
@@ -422,6 +427,13 @@ class DiGiCo extends EventEmitter {
 
   // Ajustes en directo del medidor (desde /diagnostico?modo=…&caida=…): no se guardan, valen hasta cerrar la app.
   setMeterMode(mode) { if (['level', 'peak', 'max', 'mix'].includes(mode)) this.meterMode = mode; return this.meterMode; }
+  // Cambia de dónde se piden los medidores (prueba en directo desde /diagnostico) y vuelve a pedirlos.
+  setMeterSource(ch, out) {
+    if (['post', 'fader'].includes(ch)) this.chSrc = ch;
+    if (['fader', 'output'].includes(out)) this.outSrc = out;
+    if (this.count) this.subscribe(true);
+    return `entradas ${this.chSrc}, salidas ${this.outSrc}`;
+  }
   setFall(v) { const n = Number(v); if (Number.isFinite(n) && n >= 5 && n <= 400) { this.fall = n; this.emit('meterFall', n); } return this.fall; }
 
   // Graba unos segundos los valores que manda la mesa para un canal, para ver su ritmo y cómo se comportan las dos mitades.

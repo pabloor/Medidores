@@ -360,6 +360,9 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     if (!driver || typeof driver.diagnostics !== 'function') return res.end('La mesa conectada no ofrece diagnóstico.');
     const q = new URL(req.url, 'http://x').searchParams;
+    if ((q.get('entradas') || q.get('salidas')) && typeof driver.setMeterSource === 'function') {
+      return res.end(`Origen de los medidores: ${driver.setMeterSource(q.get('entradas'), q.get('salidas'))}\n(entradas: post | fader · salidas: fader | output)`);
+    }
     if (q.get('modo') || q.get('caida')) { // ajustes en directo del medidor (DiGiCo)
       if (typeof driver.setMeterMode === 'function') {
         if (q.get('modo')) driver.setMeterMode(q.get('modo'));
