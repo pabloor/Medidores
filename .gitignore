@@ -4,3 +4,5 @@ dist/
 config.json
 prefs.json
 shure.json
+iem.json
+linecheck.json

@@ -9,6 +9,8 @@ El line check guiado podrá comprobar los monitores: "Manda señal al Aux 3" y �
 - **PSM 1000 (P10T):** según su manual, con `< SET x METER_RATE <ms> >` manda `AUDIO_IN_LVL_L` y `AUDIO_IN_LVL_R`. Falta saber la escala y si `x` es el canal del emisor.
 - **Axient Digital PSM:** Shure no ha publicado sus comandos de red. Probablemente se parezcan a los de los receptores Axient Digital (`METER_RATE` y mensajes `SAMPLE`), pero hay que comprobarlo.
 
+La interfaz ya está preparada (Ajustes → Emisores de IEM Shure y el line check de buses), pero sin comunicación con los emisores: el servidor guarda la configuración en `iem.json` y, con una mesa real, el line check muestra «sin comprobar». Con el simulador de line check (`SIM_LINECHECK=1`), el driver simula lo que recibe cada emisor (`iemInput`). Falta un driver que pida y lea el nivel de entrada de los emisores reales, con lo que salga del sondeo.
+
 ## Cómo sondearlos
 
 1. Conecta los emisores a la misma red que el Mac y apunta sus IP (menú de red del emisor o Wireless Workbench).

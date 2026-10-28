@@ -26,7 +26,7 @@ class Simulator extends EventEmitter {
       const beat = t * 2; // 120 bpm
       const hit = (phase, decay) => Math.exp(-frac(phase) * decay);
       const song = 0.5 + 0.5 * Math.sin(t / 9); // intensidad que sube y baja
-      if (process.env.SIM_LINECHECK) return this.emit('levels', this.lineCheckLevels(t));
+      if (process.env.SIM_LINECHECK) { const lv = this.lineCheckLevels(t); this.lastBus = lv[1]; return this.emit('levels', lv); }
       const ch = CH.map((name, i) => {
         if (name === 'Talk') return -90;
         if (name === 'Bombo') return -42 + 38 * hit(beat, 9) + noise();
@@ -58,6 +58,15 @@ class Simulator extends EventEmitter {
     const n = (this.lcVisits.get(id) || 0) + 1;
     this.lcVisits.set(id, n);
     this.cue = keys.length ? { keys, first: n === 1, at: Date.now() } : null;
+  }
+  // Emisores de IEM simulados (solo con SIM_LINECHECK): lo que recibe el emisor conectado a un bus es el nivel de ese bus,
+  // salvo el de Mon 2, al que la primera vez no le llega nada (cable o Dante). Ver iem.json en el servidor.
+  iemInput(key) {
+    if (!process.env.SIM_LINECHECK) return null;
+    const [g, i] = key.split(':');
+    if (g !== 'bus' || !this.lastBus) return null;
+    if (key === 'bus:1' && this.cue && this.cue.first && this.cue.keys.includes('bus:1')) return -90;
+    return this.lastBus[+i] ?? -90;
   }
   // Tiras que suenan cuando el técnico da señal a `keys` (con su fallo, si es la primera vez)
   lineCheckSounds(keys, first) {

@@ -209,7 +209,7 @@
   #roleHint { color: var(--muted); font-size: 14px; line-height: 1.3; margin: 10px 0 0; }
   #regenKey { margin-top: 10px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 14px; cursor: pointer; }
   /* Sin la clave de control solo se puede medir: se ocultan los ajustes que modifican la mesa. */
-  body.viewer #changeMixer, body.viewer #clearLog, body.viewer #clearHistory, body.viewer #mpRow, body.viewer #ctrlSettings { display: none !important; }
+  body.viewer #changeMixer, body.viewer #clearLog, body.viewer #clearHistory, body.viewer #mpRow, body.viewer #ctrlSettings, body.viewer #iemSettings { display: none !important; }
   .qr { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center; }
   .qr img { width: 150px; height: 150px; border-radius: 8px; background: #fff; }
   .qr p { margin: 0 0 8px; }
@@ -305,6 +305,8 @@
   .shure-form select { display: block; width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: var(--stage); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; margin-top: 3px; }
   .shure-form button { grid-column: 1 / -1; }
   .shure-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.35; }
+  .shure-form .iemc[hidden] { display: none; }
+  .shure-list .tag { font-size: 12px; color: var(--warm); border: 1px solid var(--warm); border-radius: 6px; padding: 1px 6px; }
   #settings select { font: inherit; font-size: 16px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
   #settings .sub { margin: 16px 0 0; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 
@@ -486,6 +488,10 @@
   .lc-now.alert { border-color: var(--warm); box-shadow: 0 0 0 2px var(--warm); }
   .lc-now.alert .state { font-weight: 600; }
   .lc-now .next { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .lc-now .iem { font-size: 15px; margin-top: 4px; }
+  .lc-now .iem.ok { color: var(--sig); }
+  .lc-now .iem.warn { color: var(--warm); font-weight: 600; }
+  .lc-now .iem.off { color: var(--muted); }
   .lc-now .nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .lc-list .go { padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 13px; cursor: pointer; }
   .lc-list .go[hidden] { visibility: hidden; display: inline-block; }
@@ -608,6 +614,21 @@
     </div>
     <p class="shure-hint" data-i18n="sh.multiHint"></p>
     <p class="error" id="shErr"></p>
+  </div>
+  <div id="iemSettings" hidden><!-- emisores de IEM: para el line check; no controlan la mesa, así que se ven también sin control de mesa -->
+    <p class="sub" data-i18n="set.iem"></p>
+    <p class="shure-hint" data-i18n="set.iemHint"></p>
+    <ul class="shure-list" id="iemList"></ul>
+    <div class="shure-form">
+      <div class="ip"><span data-i18n="iem.ip"></span><input id="iemIp" inputmode="decimal" placeholder="192.168.0.60" autocomplete="off"></div>
+      <div class="ip"><span data-i18n="iem.model"></span><select id="iemModel"><option value="P10T">PSM 1000 · P10T</option><option value="ADTD">Axient Digital PSM · ADTD</option><option value="ADTQ">Axient Digital PSM · ADTQ</option></select></div>
+      <div class="iemc"><span class="iemch" data-n="1"></span><select id="iemC1"></select></div>
+      <div class="iemc"><span class="iemch" data-n="2"></span><select id="iemC2"></select></div>
+      <div class="iemc"><span class="iemch" data-n="3"></span><select id="iemC3"></select></div>
+      <div class="iemc"><span class="iemch" data-n="4"></span><select id="iemC4"></select></div>
+      <button id="iemAdd" data-i18n="iem.add"></button>
+    </div>
+    <p class="error" id="iemErr"></p>
   </div>
   <div class="actions">
     <button id="changeMixer" data-i18n="btn.changeMixer"></button>
@@ -746,6 +767,7 @@
     <div class="cur" id="lcCur"></div>
     <div class="meters" id="lcLive"></div>
     <div class="state" id="lcState"></div>
+    <div class="iem" id="lcIem" hidden></div>
     <div class="next" id="lcNext"></div>
     <div class="nav"><button id="lcPrev" data-i18n="lc.prev"></button><button id="lcRepeat" data-i18n="lc.repeat"></button><button id="lcSkip" data-i18n="lc.skip"></button></div>
   </div>
@@ -1000,6 +1022,7 @@
       else if (m.type === 'control') buildControl(m);
       else if (m.type === 'param') onParam(m);
       else if (m.type === 'shure') onShure(m);
+      else if (m.type === 'iem') onIem(m);
       else if (m.type === 'nics') onNics(m);
       else if (m.type === 'shure-error') $('shErr').textContent = m.key ? t(m.key, m.p) : m.error;
     };
@@ -1076,6 +1099,7 @@
   let current = null, chosen = null, urls = [], ifaces = [], addrIndex = 0, qrRole = 'view';
   function onRole(m) {
     canControl = m.role === 'control';
+    $('iemSettings').hidden = !canControl; // emisores de IEM: con control, haya o no control de la mesa
     controlKey = m.key || '';
     document.body.classList.toggle('viewer', !canControl);
     if (!canControl) { $('modes').hidden = true; $('ctrlSettings').hidden = true; setMode('meters', false); }
@@ -1464,6 +1488,45 @@
     const nic = $('shNic').value;
     ws.send(JSON.stringify({ type: 'shure-set', list: [...shureList.filter((r) => r.ip !== ip), { ip, map, ...(nic ? { nic } : {}) }] }));
     ['shIp', 'shC1', 'shC2', 'shC3', 'shC4'].forEach((id) => { $(id).value = ''; });
+  };
+
+  // --- Emisores de IEM Shure (en preparación: aún no se comunica con ellos). Cada canal del emisor recibe un bus de la mesa.
+  let iemState = { list: [], models: { P10T: 2, ADTD: 2, ADTQ: 4 }, live: false };
+  const iemOutStrips = () => strips.filter((st) => st.gid !== 'ch');
+  function fillIemSelects() {
+    const opts = `<option value="">${esc(t('iem.none'))}</option>` + iemOutStrips().map((st) => `<option value="${esc(st.gid)}:${st.idx}">${esc(st.label)}</option>`).join('');
+    const n = iemState.models[$('iemModel').value] || 2;
+    for (let k = 1; k <= 4; k++) {
+      const sel = $('iemC' + k), keep = sel.value;
+      sel.innerHTML = opts; sel.value = keep;
+      sel.parentElement.hidden = k > n;
+    }
+  }
+  function renderIemList() {
+    const label = (key) => { const st = strips.find((x) => `${x.gid}:${x.idx}` === key); return st ? st.label : key; };
+    $('iemList').innerHTML = '';
+    iemState.list.forEach((e, k) => {
+      const li = document.createElement('li');
+      const maps = Object.entries(e.map).map(([ch, key]) => `${ch}←${label(key)}`).join(', ');
+      li.innerHTML = `<span>${esc(e.model)} ${esc(e.ip)} · ${esc(maps)}</span><i class="tag">${esc(t(iemState.live ? 'iem.sim' : 'iem.preview'))}</i><button>${t('sh.remove')}</button>`;
+      li.querySelector('button').onclick = () => {
+        if (!confirm(t('iem.confirmRemove', { ip: e.ip }))) return;
+        ws.send(JSON.stringify({ type: 'iem-set', list: iemState.list.filter((_, j) => j !== k) }));
+      };
+      $('iemList').appendChild(li);
+    });
+  }
+  function onIem(m) { iemState = { ...iemState, ...m }; $('iemErr').textContent = ''; fillIemSelects(); renderIemList(); }
+  $('iemModel').onchange = fillIemSelects;
+  $('openSettings').addEventListener('click', () => { fillIemSelects(); renderIemList(); }); // los buses pueden haber cambiado de nombre
+  $('iemAdd').onclick = () => {
+    const ip = $('iemIp').value.trim(), model = $('iemModel').value;
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('iemErr').textContent = t('err.ipForm', { ex: '192.168.0.60' }); return; }
+    const map = {};
+    for (let k = 1; k <= (iemState.models[model] || 2); k++) if ($('iemC' + k).value) map[k] = $('iemC' + k).value;
+    if (!Object.keys(map).length) { $('iemErr').textContent = t('iem.errNone'); return; }
+    ws.send(JSON.stringify({ type: 'iem-set', list: [...iemState.list.filter((e) => e.ip !== ip), { ip, model, map }] }));
+    $('iemIp').value = ''; for (let k = 1; k <= 4; k++) $('iemC' + k).value = '';
   };
 
   // Marcas de la escala, por orden de importancia: si el fader es bajo, solo caben las primeras.
@@ -2131,9 +2194,15 @@
   // Texto de estado de un paso o tira del line check
   // Tiras de otros pasos cuya señal entró por esta. Con los lados invertidos de un par, el otro lado ya lo dice el aviso.
   const lcFrom = (r) => (r.crossFrom || []).filter((l) => !(r.swapped && l === r.cross));
+  // Texto de estado de un paso: el de la mesa y, en un bus con emisor de IEM, el del emisor
   function lcStepText(r) {
+    const iem = !r.iem ? '' : r.iem.state === 'nosignal' ? `⚠ ${t(r.iem.to ? 'lc.iemNoTo' : 'lc.iemNoShort', { to: r.iem.to })}`
+      : r.iem.state === 'ok' ? t('lc.iemOkShort') : r.iem.state === 'unchecked' ? t('lc.iemUncheckedShort') : '';
+    return [lcStepTextBase(r), r.state === 'ok' || (r.iem && r.iem.state === 'nosignal') ? iem : ''].filter(Boolean).join(' · ');
+  }
+  function lcStepTextBase(r) {
     const from = lcFrom(r).length ? `⚠ ${t('lc.crossFrom', { list: lcFrom(r).join(', ') })}` : ''; // por esta tira entró la señal de otro paso
-    const fixed = r.fixed ? (r.fixed.swapped ? t('lc.fixedSwapped') : t(r.fixed.cross ? 'lc.fixedCross' : 'lc.fixedMissing', { ch: r.fixed.cross || r.fixed.missing })) : ''; // tuvo un problema y ya llega bien
+    const fixed = r.fixed ? (r.fixed.swapped ? t('lc.fixedSwapped') : r.fixed.cross ? t('lc.fixedCross', { ch: r.fixed.cross }) : r.fixed.missing ? t('lc.fixedMissing', { ch: r.fixed.missing }) : r.fixed.iem ? t('lc.fixedIem') : '') : '';
     if (r.state === 'ok') return [`✓ ${fmtNum(r.peak)} dB`, fixed, r.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', r.also.length ? `⚠ ${t('lc.also', { list: r.also.join(', ') })}` : '', from].filter(Boolean).join(' · ');
     const warn = r.both ? `⚠ ${t(r.side === 'L' ? 'lc.bothL' : 'lc.bothR')}`
       : r.swapped ? `⚠ ${t('lc.swapped', { ch: r.cross })}`
@@ -2142,7 +2211,7 @@
     return [r.state === 'skip' ? t('lc.skipped') : '', warn, from].filter(Boolean).join(' · '); // un paso saltado conserva su aviso
   }
   const lcNum = (label) => label.split(' + ').map((l) => l.split(' ')[0]).join('+'); // "13 Teclas L + 14 Teclas R" → "13+14"
-  const lcLabelOf = (r) => r.side ? `${r.label} (${t(r.side === 'L' ? 'lc.onlyLeft' : 'lc.onlyRight')})` : r.label; // paso de un solo lado de un par
+  const lcLabelOf = (r) => r.label; // un paso de un solo lado ya se reconoce por el nombre o la numeración de la tira (L/R)
   // Comparación con el line check anterior: qué ha cambiado en las mismas tiras
   function lcCompare() {
     const prev = lcState.prev, rows = lcState.rows || [];
@@ -2187,7 +2256,14 @@
       const txt = lcStepText(cur);
       $('lcState').textContent = txt || t(cur.side ? (cur.side === 'L' ? 'lc.waitLeft' : 'lc.waitRight') : 'lc.waiting');
       $('lcState').className = `state${cur.state === 'ok' ? ' ok' : txt ? ' warn' : ''}`;
-      $('lcNow').classList.toggle('alert', !!(cur.cross || cur.missing || cur.both)); // tarjeta en naranja mientras haya un problema
+      $('lcNow').classList.toggle('alert', !!(cur.cross || cur.missing || cur.both || (cur.iem && cur.iem.state === 'nosignal'))); // tarjeta en naranja mientras haya un problema
+      $('lcIem').hidden = !cur.iem;
+      if (cur.iem) {
+        const st = cur.iem.state, em = cur.iem.label;
+        $('lcIem').textContent = st === 'ok' ? t('lc.iemCardOk', { em }) : st === 'nosignal' ? t('lc.iemCardNo', { em }) + (cur.iem.to ? ` · ${t('lc.iemNoTo', { to: cur.iem.to })}` : '')
+          : st === 'unchecked' ? t('lc.iemCardUnchecked', { em }) : t('lc.iemWait', { em });
+        $('lcIem').className = `iem ${st === 'ok' ? 'ok' : st === 'nosignal' ? 'warn' : 'off'}`;
+      }
       const nxt = rows.find((r, k) => k > lcState.cur && r.state === 'pending');
       $('lcNext').textContent = nxt ? t('lc.next', { name: lcLabelOf(nxt) }) : t('lc.last');
       $('lcPrev').disabled = lcState.cur <= 0;
@@ -2219,7 +2295,7 @@
     const onlyPending = $('lcPending').checked;
     rows.forEach((row, k) => {
       const r = lcRows[k], isCur = lcState.active && guided && k === lcState.cur;
-      const warn = !!(row.cross || row.missing || row.both || row.unbalanced || row.also.length || lcFrom(row).length);
+      const warn = !!(row.cross || row.missing || row.both || row.unbalanced || row.also.length || lcFrom(row).length || (row.iem && row.iem.state === 'nosignal'));
       r.li.dataset.label = row.label.split(' + ')[0];
       r.nm.textContent = lcLabelOf(row);
       r.bar.style.width = `${Math.round(pos(lcState.active ? levels[row.keys[0]] ?? -90 : -90) * 100)}%`;
@@ -2256,7 +2332,10 @@
     if (r.also.length) add(t('lc.pAlso'), t('lc.infoAlso', { list: r.also.join(', '), db: P.also ?? 20 }));
     if (r.unbalanced && r.peaks && r.peaks.length === 2) add(t('lc.pUnbalanced'), t('lc.infoUnbalanced', { db: Math.abs(r.peaks[0] - r.peaks[1]).toFixed(1), l: fmtNum(r.peaks[0]), r: fmtNum(r.peaks[1]) }));
     if (r.noise) add(t('lc.pNoise'), t('lc.infoNoise', { ch: (r.noisy || []).length ? r.noisy.join(', ') : r.label }));
-    if (r.fixed) add(t('lc.pFixed'), r.fixed.swapped ? t('lc.fixedSwapped') : t(r.fixed.cross ? 'lc.fixedCross' : 'lc.fixedMissing', { ch: r.fixed.cross || r.fixed.missing }), false);
+    if (r.iem && r.iem.state === 'nosignal') add(t('lc.pIemNo'), t('lc.infoIemNo', { em: r.iem.label }) + (r.iem.to ? ' ' + t('lc.infoIemNoTo', { to: r.iem.to }) : ''));
+    if (r.iem && r.iem.state === 'ok') add(t('lc.pIemOk'), t('lc.infoIemOk', { em: r.iem.label }), false);
+    if (r.iem && r.iem.state === 'unchecked') add(t('lc.pIemUnchecked'), t('lc.infoIemUnchecked', { em: r.iem.label }), false);
+    if (r.fixed) add(t('lc.pFixed'), r.fixed.swapped ? t('lc.fixedSwapped') : r.fixed.cross ? t('lc.fixedCross', { ch: r.fixed.cross }) : r.fixed.missing ? t('lc.fixedMissing', { ch: r.fixed.missing }) : t('lc.fixedIem'), false);
     return out;
   }
   let lcInfoStep = -1;
@@ -2337,6 +2416,7 @@
   }
   // Etiquetas "Canal N →" del formulario Shure
   document.querySelectorAll('.shch').forEach((el) => { el.textContent = t('sh.ch', { n: el.dataset.n }); });
+  document.querySelectorAll('.iemch').forEach((el) => { el.textContent = t('iem.ch', { n: el.dataset.n }); });
 
   // --- Punto de medida de los canales de entrada (lo guarda el ordenador puente)
   function onMeterPoint(m) {
