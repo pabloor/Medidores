@@ -1613,13 +1613,16 @@
       li.innerHTML = `<span>${esc(d.model)} ${esc(d.ip)}${d.name ? ` · ${esc(d.name)}` : ''}${d.kind === 'rx' ? ` <small>(${esc(t('iem.isRx'))})</small>` : ''}</span>`
         + (d.kind === 'tx' ? `<button>${esc(t(saved ? 'iem.edit' : 'iem.setup'))}</button>` : '');
       const b = li.querySelector('button');
-      if (b) b.onclick = () => { // a la ficha de abajo, ya leída del emisor
-        $('iemIp').value = d.ip; $('iemIp').dispatchEvent(new Event('input'));
-        $('iemRead').click();
-        $('iemIp').scrollIntoView({ block: 'center', behavior: 'smooth' });
-      };
+      if (b) b.onclick = () => iemOpen(d.ip);
       $('iemFound').appendChild(li);
     }
+  }
+  // Abre la ficha de un emisor (de la búsqueda o de la lista de guardados): la lee del emisor y, si ya estaba guardado, la rellena
+  function iemOpen(ip) {
+    $('iemIp').value = ip; $('iemIp').dispatchEvent(new Event('input'));
+    iemPrefill(ip); fillIemSelects(); // por si el emisor no contesta: lo guardado
+    $('iemRead').click();
+    $('iemIp').scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
   $('iemRead').onclick = () => {
     const ip = $('iemIp').value.trim();
@@ -1654,8 +1657,9 @@
       const li = document.createElement('li');
       const maps = Object.entries(e.map).map(([ch, v]) => (e.names && e.names[ch] ? `${e.names[ch]}: ` : '') + (typeof v === 'string' ? `${ch}←${label(v)}`
         : v.dual ? [v.l && `${ch}A←${label(v.l)}`, v.r && `${ch}B←${label(v.r)}`].filter(Boolean).join(', ') : `${ch}←${label(v.l)} + ${label(v.r)}`)).join(', ');
-      li.innerHTML = `<span>${esc(e.model)} ${esc(e.ip)} · ${esc(maps)}</span><i class="tag">${esc(t(iemState.live ? 'iem.sim' : 'iem.preview'))}</i><button>${t('sh.remove')}</button>`;
-      li.querySelector('button').onclick = () => {
+      li.innerHTML = `<span>${esc(e.model)} ${esc(e.ip)} · ${esc(maps)}</span><i class="tag">${esc(t(iemState.live ? 'iem.sim' : 'iem.preview'))}</i><button class="edit">${t('iem.edit')}</button><button class="del">${t('sh.remove')}</button>`;
+      li.querySelector('.edit').onclick = () => iemOpen(e.ip);
+      li.querySelector('.del').onclick = () => {
         if (!confirm(t('iem.confirmRemove', { ip: e.ip }))) return;
         ws.send(JSON.stringify({ type: 'iem-set', list: iemState.list.filter((_, j) => j !== k) }));
       };
