@@ -1477,6 +1477,13 @@
   $('cuDone').onclick = () => { $('customDlg').close(); store.set('ctlLayer', 'custom'); applyLayer(); };
   $('customDlg').addEventListener('close', applyLayer);
 
+  // Confirmación con un segundo toque en el mismo botón (algunos navegadores bloquean las ventanas de confirm())
+  function confirmTap(btn, action) {
+    if (btn.dataset.armed) { clearTimeout(btn._t); action(); return; }
+    const label = btn.textContent;
+    btn.dataset.armed = '1'; btn.textContent = t('btn.sure'); btn.style.background = 'var(--hot)'; btn.style.color = '#fff';
+    btn._t = setTimeout(() => { delete btn.dataset.armed; btn.textContent = label; btn.style.background = ''; btn.style.color = ''; }, 3000);
+  }
   // --- Receptores Shure
   let extState = {}, shureList = [], nics = [];
   // Adaptadores de red del Mac: "Automático" deja que decida el sistema; si no, el receptor se conecta por ese.
@@ -1508,7 +1515,8 @@
       const nic = r.nic ? ` · ${esc(r.nic)}${gone ? ` (${esc(t('sh.nicGone'))})` : ''}` : '';
       li.innerHTML = `<i class="dot${shureOnline[k] ? ' on' : ''}"></i><span>${esc(r.ip)}${nic} · ${t('sh.channels')} ${esc(maps)}</span><button>${t('sh.remove')}</button>`;
       li.querySelector('button').onclick = () => {
-        if (!confirm(t('sh.confirmRemove', { ip: r.ip }))) return;
+        confirmTap(li.querySelector('button'), () => ws.send(JSON.stringify({ type: 'shure-set', list: shureList.filter((_, j) => j !== k) })));
+        return;
         ws.send(JSON.stringify({ type: 'shure-set', list: shureList.filter((_, j) => j !== k) }));
       };
       $('shureList').appendChild(li);
@@ -1784,7 +1792,8 @@
         + `<button class="edit">${t('iem.edit')}</button><button class="del">${t('sh.remove')}</button>`;
       li.querySelector('.edit').onclick = () => iemOpen(e.ip);
       li.querySelector('.del').onclick = () => {
-        if (!confirm(t('iem.confirmRemove', { ip: e.ip }))) return;
+        confirmTap(li.querySelector('.del'), () => ws.send(JSON.stringify({ type: 'iem-set', list: iemState.list.filter((_, j) => j !== k) })));
+        return;
         ws.send(JSON.stringify({ type: 'iem-set', list: iemState.list.filter((_, j) => j !== k) }));
       };
       $('iemList').appendChild(li);
