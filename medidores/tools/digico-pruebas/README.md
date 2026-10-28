@@ -44,6 +44,7 @@ Las rutas `GR_meter` servirían para mostrar la compresión de cada canal.
 | `pre-trim.js <canal> <s>` | Registra `pre_meter`, `post_meter` y el trim, y resume los tramos con el trim quieto. Sirvió para ver que post = pre + trim. |
 | `sobre-cero.js <canal> <s>` | Valores crudos de `pre_meter` y `post_meter` según el trim, y los silencios de `post_meter`. Sirvió para ver que a 0 dB la mesa deja de mandar. |
 | `peticion-cero.js` | Pide tres veces `post_meter` del canal 7, `post_meter` del canal 1 y `pre_meter` del canal 7, y muestra qué contesta la mesa. También consulta `post_meter/?`, que devuelve la lista de rutas de arriba. |
+| `listar-rutas.js [ruta…]` | Recorre las rutas de la mesa con consultas `/?` y guarda la lista en la carpeta temporal. Solo lee. Pendiente de usar para buscar los gangs y los canales estéreo (ver abajo). |
 | `probar-digico.js <ip> [nic] [s]` | Conecta el driver y muestra los niveles de buses y matrices, con sus lados izquierdo y derecho. |
 | `probar-pretrim.js <ip> <nic> <s> [falsa]` | Canal 7 con y sin el cruce `pre_meter` + trim. Con `falsa` compara con el nivel que simula `digico-falsa.js`. |
 | `probar-arriba.js <ip> <nic> <s> [falsa]` | Canal 7 cerca de 0 dB con y sin volver a pedir los medidores de arriba. Con `falsa`, usa `OVER=1` en `digico-falsa.js`. |
@@ -52,3 +53,12 @@ Ejemplo con la mesa falsa:
 
     OVER=1 PORT=9100 node tools/digico-falsa.js &
     LPORT=9100 node tools/digico-pruebas/probar-arriba.js 127.0.0.1 "" 15 falsa
+
+## Pendiente: pares estéreo y gangs en DiGiCo
+
+El line check guiado comprueba pares estéreo, pero en DiGiCo hay que escribirlos a mano porque el driver aún no sabe qué canales van juntos. Hay que averiguar, con la mesa conectada:
+
+1. **Dónde están los gangs.** En el tráfico de la app oficial no apareció ninguna ruta de gangs. `listar-rutas.js` recorre el árbol de la mesa para buscarlos: `node tools/digico-pruebas/listar-rutas.js`, después de crear en la mesa un gang de dos canales.
+2. **Qué significan `/Console/Input_Channels/modes` y `/Input_Channels/N/Channel_Input/stereo_mode`.** La app oficial los consulta; con todos los canales mono valían 1. Hay que poner un canal en estéreo y ver qué cambia.
+3. **El lado derecho de los canales estéreo.** En un canal estéreo de un solo número, el driver solo pide `post_meter/left`. La mesa anuncia también `post_meter/right` (en un canal mono vale 126, silencio).
+
