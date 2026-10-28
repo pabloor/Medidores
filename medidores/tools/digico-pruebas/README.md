@@ -6,6 +6,10 @@ Por defecto usan la mesa `192.168.102.121`. Para otra mesa o para fijar el adapt
 
     IP=192.168.1.50 LOCAL=192.168.1.20 node tools/digico-pruebas/sondear-entradas.js 7 6 30
 
+Si en External Control de la mesa los puertos no son Receive 8000 / Send 9000 (p. ej. porque otro dispositivo ya los usa), indícalos con `SPORT` (Receive de la mesa) y `LPORT` (Send de la mesa). Sirve para todos los scripts:
+
+    IP=192.168.1.50 SPORT=8100 LPORT=9100 node tools/digico-pruebas/peticion-cero.js
+
 Los que usan el driver (`probar-*.js`) reciben la IP y el adaptador como argumentos (`node … 192.168.102.121 en9 10`).
 
 ## Lo que se averiguó

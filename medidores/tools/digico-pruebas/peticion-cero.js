@@ -3,8 +3,9 @@
 const dgram = require('dgram');
 const osc = require('../../drivers/osc');
 const IP = process.env.IP || '192.168.102.121', LOCAL = process.env.LOCAL || undefined; // IP de la mesa; LOCAL = IP del adaptador del Mac (vacío = todos)
+const SPORT = Number(process.env.SPORT || 8000), LPORT = Number(process.env.LPORT || 9000); // puertos de la mesa: Receive / Send en External Control
 const sock = dgram.createSocket('udp4');
-const send = (a, args = []) => sock.send(osc.encode(a, args), 8000, IP);
+const send = (a, args = []) => sock.send(osc.encode(a, args), SPORT, IP);
 const t0 = Date.now();
 const names = ['post 7', 'post 1', 'pre 7'];
 sock.on('message', (b) => {
@@ -23,7 +24,7 @@ const req = () => {
   send('/Meters/request/1', ['/Input_Channels/1/Channel_Input/post_meter/left']);
   send('/Meters/request/2', ['/Input_Channels/7/Channel_Input/pre_meter/left']);
 };
-sock.bind(9000, LOCAL, async () => {
+sock.bind(LPORT, LOCAL, async () => {
   send('/Meters/clear');
   send('/Input_Channels/7/Channel_Input/trim/?');
   await new Promise((r) => setTimeout(r, 150));

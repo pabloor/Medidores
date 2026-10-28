@@ -3,7 +3,7 @@
 const DiGiCo = require('../../drivers/digico');
 const [ip, nic, secs, fake] = [process.argv[2], process.argv[3] || '', Number(process.argv[4] || 10), process.argv[5] === 'falsa'];
 const level7 = (t) => -2 + 4 * Math.sin(t / 3); // igual que tools/digico-falsa.js con OVER=1
-const d = new DiGiCo({ ip, nic, 'listen-port': process.env.LPORT || 9000 });
+const d = new DiGiCo({ ip, nic, 'listen-port': process.env.LPORT || 9000, 'send-port': process.env.SPORT || 8000 });
 d.on('status', () => {});
 d.start();
 const run = (label, ms) => new Promise((res) => {

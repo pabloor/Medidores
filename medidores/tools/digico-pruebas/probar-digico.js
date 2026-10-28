@@ -2,7 +2,7 @@
 // Uso: node probar-digico.js <ip> [nic] [segundos]
 const DiGiCo = require('../../drivers/digico');
 const [ip, nic, secs] = [process.argv[2], process.argv[3] || '', Number(process.argv[4] || 6)];
-const d = new DiGiCo({ ip, nic, 'listen-port': process.env.LPORT || 9000 }); // LPORT=9100 con la mesa falsa en PORT=9100
+const d = new DiGiCo({ ip, nic, 'listen-port': process.env.LPORT || 9000, 'send-port': process.env.SPORT || 8000 }); // LPORT=9100 con la mesa falsa en PORT=9100
 let layout = null, last = null;
 d.on('layout', (l) => { layout = l; });
 d.on('levels', (lv) => { last = lv; });

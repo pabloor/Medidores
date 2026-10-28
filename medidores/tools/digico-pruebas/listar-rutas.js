@@ -9,11 +9,12 @@ const dgram = require('dgram');
 const fs = require('fs');
 const osc = require('../../drivers/osc');
 const IP = process.env.IP || '192.168.102.121', LOCAL = process.env.LOCAL || undefined; // IP de la mesa; LOCAL = IP del adaptador del Mac (vacío = todos)
+const SPORT = Number(process.env.SPORT || 8000), LPORT = Number(process.env.LPORT || 9000); // puertos de la mesa: Receive / Send en External Control
 const PROF = Number(process.env.PROF || 4), MAX = Number(process.env.MAX || 600);
 const roots = process.argv.slice(2).length ? process.argv.slice(2)
   : ['/Console', '/Input_Channels/1', '/Input_Channels/1/Channel_Input', '/Gangs', '/Console/Gangs', '/Control_Groups/1'];
 const sock = dgram.createSocket('udp4');
-const send = (a) => sock.send(osc.encode(a, []), 8000, IP);
+const send = (a) => sock.send(osc.encode(a, []), SPORT, IP);
 const seen = new Map();     // ruta -> argumentos (null = sin argumentos: es una rama)
 const asked = new Set(), queue = [...roots];
 const depthOf = new Map(roots.map((r) => [r, 0])); // profundidad de cada rama desde su ruta inicial
@@ -30,7 +31,7 @@ sock.on('message', (b) => {
     if (depth < PROF) queue.push(m.address);
   }
 });
-sock.bind(9000, LOCAL, async () => {
+sock.bind(LPORT, LOCAL, async () => {
   let n = 0;
   while (n < MAX) {
     const next = queue.shift();
