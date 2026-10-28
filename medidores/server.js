@@ -209,11 +209,15 @@ function startShure() {
 // EN PREPARACIÓN: todavía no se conecta con los emisores (falta confirmar su protocolo con equipos reales; ver
 // tools/shure-pruebas). Se guardan en iem.json y el line check los muestra: con una mesa real, "sin comprobar";
 // con el simulador (SIM_LINECHECK), el driver simula lo que recibiría cada emisor (iemInput).
-// Cada canal de emisor tiene entrada estéreo: map[canal] = "bus:0" (mezcla mono: el mismo bus a L y R)
-// o { "l": "bus:4", "r": "bus:5" } (mezcla estéreo).
+// Cada canal de emisor tiene entrada estéreo y puede llevar una mezcla mono, una estéreo o, en Axient Digital PSM, dos mono
+// independientes (ADTD: 2 estéreo o 4 mono · ADTQ: 4 estéreo u 8 mono):
+//   map[canal] = "bus:0"                              mezcla mono (el mismo bus a L y R)
+//                { "l": "bus:4", "r": "bus:5" }       mezcla estéreo
+//                { "l": "bus:0", "r": "bus:1", "dual": true }   dos mezclas mono, A (entrada L) y B (entrada R); puede faltar una
 // iem.json: [{ "ip": "192.168.0.60", "model": "P10T", "map": { "1": "bus:0", "2": { "l": "bus:4", "r": "bus:5" } } }]
 const IEM_FILE = path.join(DATA_DIR, 'iem.json');
 const IEM_MODELS = { P10T: 2, ADTD: 2, ADTQ: 4 }; // canales de cada modelo
+const IEM_DUAL = { ADTD: true, ADTQ: true };      // modelos que pueden llevar dos mezclas mono por canal
 let iemList = [];
 try { iemList = JSON.parse(fs.readFileSync(IEM_FILE, 'utf8')); } catch {}
 function sanitizeIem(list) {
@@ -228,6 +232,7 @@ function sanitizeIem(list) {
     for (const [ch, v] of Object.entries(e.map || {})) {
       if (!/^[1-4]$/.test(ch) || Number(ch) > IEM_MODELS[model]) continue;
       if (typeof v === 'string' && okKey(v)) map[ch] = v;
+      else if (v && v.dual && IEM_DUAL[model] && (okKey(v.l) || okKey(v.r)) && v.l !== v.r) map[ch] = { l: okKey(v.l) ? String(v.l) : '', r: okKey(v.r) ? String(v.r) : '', dual: true };
       else if (v && okKey(v.l)) map[ch] = v.r && okKey(v.r) && v.r !== v.l ? { l: String(v.l), r: String(v.r) } : String(v.l);
     }
     if (Object.keys(map).length) out.push({ ip, model, map });
@@ -241,20 +246,23 @@ function iemByKey() {
   for (const e of iemList) for (const [ch, v] of Object.entries(e.map)) {
     const base = { ip: e.ip, model: e.model, ch: Number(ch) };
     if (typeof v === 'string') m.set(v, { ...base, side: null, label: `${e.model} ${e.ip} · ${ch}` });
-    else { m.set(v.l, { ...base, side: 'L', label: `${e.model} ${e.ip} · ${ch} L` }); m.set(v.r, { ...base, side: 'R', label: `${e.model} ${e.ip} · ${ch} R` }); }
+    else if (v.dual) { // dos mezclas mono: cada una se comprueba por su cuenta
+      if (v.l) m.set(v.l, { ...base, side: 'L', dual: true, label: `${e.model} ${e.ip} · ${ch}A` });
+      if (v.r) m.set(v.r, { ...base, side: 'R', dual: true, label: `${e.model} ${e.ip} · ${ch}B` });
+    } else { m.set(v.l, { ...base, side: 'L', label: `${e.model} ${e.ip} · ${ch} L` }); m.set(v.r, { ...base, side: 'R', label: `${e.model} ${e.ip} · ${ch} R` }); }
   }
   return m;
 }
 // Etiqueta de los emisores de un paso: los dos lados de un mismo canal se juntan ("ADTQ 192.168.0.61 · 3 L+R")
 function iemLabel(keys) {
   const m = iemByKey(), es = keys.map((k) => m.get(k)).filter(Boolean);
-  if (es.length === 2 && es[0].ip === es[1].ip && es[0].ch === es[1].ch && es[0].side && es[1].side) return `${es[0].model} ${es[0].ip} · ${es[0].ch} L+R`;
+  if (es.length === 2 && es[0].ip === es[1].ip && es[0].ch === es[1].ch && es[0].side && es[1].side && !es[0].dual) return `${es[0].model} ${es[0].ip} · ${es[0].ch} L+R`;
   return [...new Set(es.map((e) => e.label))].join(' + ');
 }
 // Nivel que recibe el emisor en la entrada de esa tira (dB), o null si no se sabe (aún no hay comunicación con emisores reales)
 const iemInput = (key) => (driver && typeof driver.iemInput === 'function' ? driver.iemInput(key, iemByKey().get(key)) : null);
 const iemLive = () => !!(driver && typeof driver.iemInput === 'function' && process.env.SIM_LINECHECK); // hoy solo el simulador
-const iemMsg = () => ({ type: 'iem', list: iemList, models: IEM_MODELS, live: iemLive() });
+const iemMsg = () => ({ type: 'iem', list: iemList, models: IEM_MODELS, dual: IEM_DUAL, live: iemLive() });
 
 // --- Registro del bolo: saturaciones e historial del nivel de salida.
 // Lo guarda el Mac para que sea igual en todos los móviles. Se reinicia al cambiar de mesa.

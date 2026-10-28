@@ -307,7 +307,10 @@
   .shure-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.35; }
   .shure-form .iemc { grid-column: 1 / -1; }
   .shure-form .iemc[hidden] { display: none; }
-  .shure-form .iemc .lr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .shure-form .iemc .lr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+  .shure-form .iemc .lr .cell[hidden] { display: none; }
+  .shure-form .iemc .lr small { display: block; font-size: 12px; color: var(--muted); }
+  .shure-form .iemc .mode { margin-top: 3px; }
   .shure-list .tag { font-size: 12px; color: var(--warm); border: 1px solid var(--warm); border-radius: 6px; padding: 1px 6px; }
   #settings select { font: inherit; font-size: 16px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
   #settings .sub { margin: 16px 0 0; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
@@ -623,11 +626,15 @@
     <ul class="shure-list" id="iemList"></ul>
     <div class="shure-form">
       <div class="ip"><span data-i18n="iem.ip"></span><input id="iemIp" inputmode="decimal" placeholder="192.168.0.60" autocomplete="off"></div>
-      <div class="ip"><span data-i18n="iem.model"></span><select id="iemModel"><option value="P10T">PSM 1000 · P10T</option><option value="ADTD">Axient Digital PSM · ADTD</option><option value="ADTQ">Axient Digital PSM · ADTQ</option></select></div>
-      <div class="iemc"><span class="iemch" data-n="1"></span><div class="lr"><select id="iemC1L"></select><select id="iemC1R"></select></div></div>
-      <div class="iemc"><span class="iemch" data-n="2"></span><div class="lr"><select id="iemC2L"></select><select id="iemC2R"></select></div></div>
-      <div class="iemc"><span class="iemch" data-n="3"></span><div class="lr"><select id="iemC3L"></select><select id="iemC3R"></select></div></div>
-      <div class="iemc"><span class="iemch" data-n="4"></span><div class="lr"><select id="iemC4L"></select><select id="iemC4R"></select></div></div>
+      <div class="ip"><span data-i18n="iem.model"></span><select id="iemModel"><option value="P10T" data-i18n="iem.mP10T"></option><option value="ADTD" data-i18n="iem.mADTD"></option><option value="ADTQ" data-i18n="iem.mADTQ"></option></select></div>
+      <div class="iemc"><span class="iemch" data-n="1"></span><select id="iemC1M" class="mode"></select>
+        <div class="lr"><div class="cell"><small id="iemC1La"></small><select id="iemC1L"></select></div><div class="cell"><small id="iemC1Ra"></small><select id="iemC1R"></select></div></div></div>
+      <div class="iemc"><span class="iemch" data-n="2"></span><select id="iemC2M" class="mode"></select>
+        <div class="lr"><div class="cell"><small id="iemC2La"></small><select id="iemC2L"></select></div><div class="cell"><small id="iemC2Ra"></small><select id="iemC2R"></select></div></div></div>
+      <div class="iemc"><span class="iemch" data-n="3"></span><select id="iemC3M" class="mode"></select>
+        <div class="lr"><div class="cell"><small id="iemC3La"></small><select id="iemC3L"></select></div><div class="cell"><small id="iemC3Ra"></small><select id="iemC3R"></select></div></div></div>
+      <div class="iemc"><span class="iemch" data-n="4"></span><select id="iemC4M" class="mode"></select>
+        <div class="lr"><div class="cell"><small id="iemC4La"></small><select id="iemC4L"></select></div><div class="cell"><small id="iemC4Ra"></small><select id="iemC4R"></select></div></div></div>
       <button id="iemAdd" data-i18n="iem.add"></button>
     </div>
     <p class="error" id="iemErr"></p>
@@ -1493,17 +1500,29 @@
   };
 
   // --- Emisores de IEM Shure (en preparación: aún no se comunica con ellos). Cada canal del emisor recibe un bus de la mesa.
-  let iemState = { list: [], models: { P10T: 2, ADTD: 2, ADTQ: 4 }, live: false };
+  let iemState = { list: [], models: { P10T: 2, ADTD: 2, ADTQ: 4 }, dual: { ADTD: true, ADTQ: true }, live: false };
   const iemOutStrips = () => strips.filter((st) => st.gid !== 'ch');
-  // Cada canal del emisor tiene entrada estéreo: L y R. R puede ser "= L (mono)" para una mezcla mono.
+  // Cada canal del emisor lleva una mezcla mono, una estéreo (L y R) o, en Axient Digital PSM, dos mono (A por la entrada L
+  // y B por la R). Según el modo se ven uno o dos selectores de bus.
+  function iemModeView(k) {
+    const m = $(`iemC${k}M`).value;
+    $(`iemC${k}La`).textContent = m === 'dual' ? t('iem.mixA') : m === 'stereo' ? 'L' : t('iem.bus');
+    $(`iemC${k}Ra`).textContent = m === 'dual' ? t('iem.mixB') : 'R';
+    $(`iemC${k}R`).closest('.cell').hidden = m === 'mono';
+  }
   function fillIemSelects() {
     const list = iemOutStrips().map((st) => `<option value="${esc(st.gid)}:${st.idx}">${esc(st.label)}</option>`).join('');
-    const n = iemState.models[$('iemModel').value] || 2;
+    const model = $('iemModel').value, n = iemState.models[model] || 2;
     for (let k = 1; k <= 4; k++) {
-      for (const [side, first] of [['L', t('iem.none')], ['R', t('iem.mono')]]) {
+      for (const side of ['L', 'R']) {
         const sel = $(`iemC${k}${side}`), keep = sel.value;
-        sel.innerHTML = `<option value="">${esc(first)}</option>${list}`; sel.value = keep;
+        sel.innerHTML = `<option value="">${esc(t('iem.none'))}</option>${list}`; sel.value = keep;
       }
+      const ms = $(`iemC${k}M`), keepM = ms.value || 'mono';
+      ms.innerHTML = ['mono', 'stereo', ...(iemState.dual[model] ? ['dual'] : [])].map((m) => `<option value="${m}">${esc(t('iem.mode.' + m))}</option>`).join('');
+      ms.value = [...ms.options].some((o) => o.value === keepM) ? keepM : 'mono';
+      ms.onchange = () => iemModeView(k);
+      iemModeView(k);
       $(`iemC${k}L`).closest('.iemc').hidden = k > n;
       // al elegir L, R se rellena con su pareja: la que dice la mesa (bus enlazado en estéreo) o, si no, la tira
       // siguiente cuando los nombres lo indican ("IEM L" → "IEM R", "Mon 1L" → "Mon 1R")
@@ -1511,7 +1530,7 @@
         const v = $(`iemC${k}L`).value, pr = (lcState.autoPairs || []).find((p) => p[0] === v);
         const [g, i] = v.split(':'), next = strips.find((x) => x.gid === g && x.idx === Number(i) + 1), cur = strips.find((x) => x.gid === g && x.idx === Number(i));
         const byName = cur && next && /L$/i.test(cur.label.trim()) && /R$/i.test(next.label.trim()) ? `${g}:${next.idx}` : '';
-        if (!$(`iemC${k}R`).value && (pr || byName)) $(`iemC${k}R`).value = pr ? pr[1] : byName;
+        if (!$(`iemC${k}R`).value && (pr || byName)) { $(`iemC${k}R`).value = pr ? pr[1] : byName; if ($(`iemC${k}M`).value === 'mono') { $(`iemC${k}M`).value = 'stereo'; iemModeView(k); } }
       };
     }
   }
@@ -1520,7 +1539,8 @@
     $('iemList').innerHTML = '';
     iemState.list.forEach((e, k) => {
       const li = document.createElement('li');
-      const maps = Object.entries(e.map).map(([ch, v]) => `${ch}←${typeof v === 'string' ? label(v) : `${label(v.l)} + ${label(v.r)}`}`).join(', ');
+      const maps = Object.entries(e.map).map(([ch, v]) => typeof v === 'string' ? `${ch}←${label(v)}`
+        : v.dual ? [v.l && `${ch}A←${label(v.l)}`, v.r && `${ch}B←${label(v.r)}`].filter(Boolean).join(', ') : `${ch}←${label(v.l)} + ${label(v.r)}`).join(', ');
       li.innerHTML = `<span>${esc(e.model)} ${esc(e.ip)} · ${esc(maps)}</span><i class="tag">${esc(t(iemState.live ? 'iem.sim' : 'iem.preview'))}</i><button>${t('sh.remove')}</button>`;
       li.querySelector('button').onclick = () => {
         if (!confirm(t('iem.confirmRemove', { ip: e.ip }))) return;
@@ -1537,12 +1557,13 @@
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('iemErr').textContent = t('err.ipForm', { ex: '192.168.0.60' }); return; }
     const map = {};
     for (let k = 1; k <= (iemState.models[model] || 2); k++) {
-      const l = $(`iemC${k}L`).value, r = $(`iemC${k}R`).value;
-      if (l) map[k] = r && r !== l ? { l, r } : l; // sin R (o igual que L): mezcla mono
+      const l = $(`iemC${k}L`).value, r = $(`iemC${k}R`).value, mode = $(`iemC${k}M`).value;
+      if (mode === 'dual') { if ((l || r) && l !== r) map[k] = { l, r, dual: true }; } // dos mezclas mono (puede faltar una)
+      else if (l) map[k] = mode === 'stereo' && r && r !== l ? { l, r } : l; // estéreo o mono
     }
     if (!Object.keys(map).length) { $('iemErr').textContent = t('iem.errNone'); return; }
     ws.send(JSON.stringify({ type: 'iem-set', list: [...iemState.list.filter((e) => e.ip !== ip), { ip, model, map }] }));
-    $('iemIp').value = ''; for (let k = 1; k <= 4; k++) { $(`iemC${k}L`).value = ''; $(`iemC${k}R`).value = ''; }
+    $('iemIp').value = ''; for (let k = 1; k <= 4; k++) { $(`iemC${k}L`).value = ''; $(`iemC${k}R`).value = ''; $(`iemC${k}M`).value = 'mono'; iemModeView(k); }
   };
 
   // Marcas de la escala, por orden de importancia: si el fader es bajo, solo caben las primeras.
