@@ -235,7 +235,10 @@ function sanitizeIem(list) {
       else if (v && v.dual && IEM_DUAL[model] && (okKey(v.l) || okKey(v.r)) && v.l !== v.r) map[ch] = { l: okKey(v.l) ? String(v.l) : '', r: okKey(v.r) ? String(v.r) : '', dual: true };
       else if (v && okKey(v.l)) map[ch] = v.r && okKey(v.r) && v.r !== v.l ? { l: String(v.l), r: String(v.r) } : String(v.l);
     }
-    if (Object.keys(map).length) out.push({ ip, model, map });
+    // nombres de canal leídos del emisor (opcional, para mostrarlos)
+    const names = {};
+    for (const [ch, n] of Object.entries((e && e.names) || {})) if (map[ch] && typeof n === 'string' && n.trim()) names[ch] = n.trim().slice(0, 24);
+    if (Object.keys(map).length) out.push({ ip, model, map, ...(Object.keys(names).length ? { names } : {}) });
   }
   return out;
 }
@@ -261,6 +264,9 @@ function iemLabel(keys) {
 }
 // Nivel que recibe el emisor en la entrada de esa tira (dB), o null si no se sabe (aún no hay comunicación con emisores reales)
 const iemInput = (key) => (driver && typeof driver.iemInput === 'function' ? driver.iemInput(key, iemByKey().get(key)) : null);
+// Configuración que dice el propio emisor: { model, channels: [{ ch, mode: 'mono'|'stereo'|'dual', name }] }, o null si no
+// se sabe. Hoy solo la da el simulador; el driver de emisores reales la leerá por red (modelo, canales, modo y nombres).
+const iemDetect = (ip) => (driver && typeof driver.iemDetect === 'function' ? driver.iemDetect(ip) : null);
 const iemLive = () => !!(driver && typeof driver.iemInput === 'function' && process.env.SIM_LINECHECK); // hoy solo el simulador
 const iemMsg = () => ({ type: 'iem', list: iemList, models: IEM_MODELS, dual: IEM_DUAL, live: iemLive() });
 
@@ -904,7 +910,7 @@ const encVal = (v) => (v === -Infinity ? '-inf' : v);
 const enc = (c) => ({ caps: c.caps, ch: c.ch.map(encStrip), main: c.main.map(encStrip), bus: (c.bus || []).map(encStrip), mtx: (c.mtx || []).map(encStrip), vca: (c.vca || []).map(encStrip) });
 const encStrip = (s) => ({ ...s, fader: encVal(s.fader) });
 const meterPointMsg = () => ({ type: 'meter-point', value: prefs.meterPoint, supported: !!(driver && typeof driver.setMeterPoint === 'function') });
-const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'iem-set', 'meter-point', 'history-clear', 'clip-log-clear', 'lc-prefs']);
+const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'iem-set', 'iem-detect', 'meter-point', 'history-clear', 'clip-log-clear', 'lc-prefs']);
 // La clave solo se le muestra al propio ordenador (para el QR de control).
 const roleMsg = (ws) => ({ type: 'role', role: ws.canControl ? 'control' : 'viewer', ...(ws.local ? { key: prefs.controlKey } : {}) });
 const infoMsg = () => ({ type: 'config', config: state.config, urls: lanUrls(), ifaces: lanAddresses().map((a) => a.name), version: APP_VERSION });
@@ -993,6 +999,10 @@ wss.on('connection', (ws, req) => {
       return ws.send(JSON.stringify(roleMsg(ws)));
     }
     if (msg.type === 'lc-prefs') { setLcPrefs(msg.prefs); return lcSend(); } // umbrales del line check (ajuste compartido: solo con control)
+    if (msg.type === 'iem-detect') { // leer del emisor su modelo, canales, modo y nombres
+      const ip = String(msg.ip || '').trim();
+      return ws.send(JSON.stringify({ type: 'iem-detect', ip, info: net.isIPv4(ip) ? iemDetect(ip) : null }));
+    }
     if (msg.type === 'iem-set') { // emisores de IEM: qué bus llega a cada canal
       const list = sanitizeIem(msg.list);
       if (!list) return ws.send(JSON.stringify({ type: 'shure-error', error: 'Revisa la IP del emisor.', key: 'err.shureIp' }));

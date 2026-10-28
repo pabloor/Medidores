@@ -9,7 +9,7 @@ El line check guiado podrá comprobar los monitores: "Manda señal al Aux 3" y �
 - **PSM 1000 (P10T):** según su manual, con `< SET x METER_RATE <ms> >` manda `AUDIO_IN_LVL_L` y `AUDIO_IN_LVL_R`. Falta saber la escala y si `x` es el canal del emisor.
 - **Axient Digital PSM:** Shure no ha publicado sus comandos de red. Probablemente se parezcan a los de los receptores Axient Digital (`METER_RATE` y mensajes `SAMPLE`), pero hay que comprobarlo.
 
-La interfaz ya está preparada (Ajustes → Emisores de IEM Shure y el line check de buses), pero sin comunicación con los emisores: el servidor guarda la configuración en `iem.json` y, con una mesa real, el line check muestra «sin comprobar». Con el simulador de line check (`SIM_LINECHECK=1`), el driver simula lo que recibe cada emisor (`iemInput`). Falta un driver que pida y lea el nivel de entrada de los emisores reales, con lo que salga del sondeo.
+La interfaz ya está preparada (Ajustes → Emisores de IEM Shure y el line check de buses), pero sin comunicación con los emisores: el servidor guarda la configuración en `iem.json` y, con una mesa real, el line check muestra «sin comprobar». Con el simulador de line check (`SIM_LINECHECK=1`), el driver simula lo que recibe cada emisor (`iemInput`). Falta un driver que pida y lea el nivel de entrada de los emisores reales, con lo que salga del sondeo. Ese driver tendrá también que responder a «Leer del emisor» (`iemDetect(ip)` en el servidor) con el modelo, los canales, el modo de cada canal (mono, estéreo o 2 monos) y su nombre: en el sondeo, pon algún canal del ADTQ en 2 monos y otro en estéreo para ver qué parámetro cambia.
 
 ## Cómo sondearlos
 

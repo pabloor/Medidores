@@ -70,6 +70,14 @@ class Simulator extends EventEmitter {
     if (key === 'bus:5' && this.cue && this.cue.first && this.cue.keys.includes('bus:5')) return -90; // IEM R: no llega al emisor la primera vez
     return this.lastBus[+i] ?? -90;
   }
+  // Lo que diría un emisor simulado de su configuración (solo con SIM_LINECHECK). IP acabada en número impar: ADTQ con
+  // canales en 2 monos, mono, estéreo y 2 monos; par: P10T con un canal mono y otro estéreo.
+  iemDetect(ip) {
+    if (!process.env.SIM_LINECHECK) return null;
+    const odd = Number(String(ip).split('.').pop()) % 2 === 1;
+    if (odd) return { model: 'ADTQ', channels: [{ ch: 1, mode: 'dual', name: 'MON 1 / MON 2' }, { ch: 2, mode: 'mono', name: 'MON 3' }, { ch: 3, mode: 'stereo', name: 'IEM VOZ' }, { ch: 4, mode: 'dual', name: 'MON 4 / SUB' }] };
+    return { model: 'P10T', channels: [{ ch: 1, mode: 'mono', name: 'IEM BATERIA' }, { ch: 2, mode: 'stereo', name: 'IEM TECLAS' }] };
+  }
   // Tiras que suenan cuando el técnico da señal a `keys` (con su fallo, si es la primera vez)
   lineCheckSounds(keys, first) {
     const out = [];
