@@ -456,38 +456,124 @@ function handleShared(ws, msg) {
     linkBroadcast({ type: 'msg-ack', id: m.id, acks: m.acks });
     return true;
   }
-  if (msg.type === 'lc-start') { lcStart(); return true; }
-  if (msg.type === 'lc-stop') { lc.active = false; lcSend(); return true; }
+  if (/^lc-(start|stop|next|prev|repeat|goto)$/.test(msg.type)) { lcCommand(msg); return true; }
   return false;
 }
 
-// ---------- Line check: cada canal de entrada se marca al recibir señal clara; detecta posible ruido constante
+// ---------- Line check. Dos modos:
+//   libre:  cada canal elegido se marca al recibir señal clara, en cualquier orden.
+//   guiado: los canales (o pares estéreo) van de uno en uno; al recibir señal el que toca, se marca y se pasa al siguiente.
+//           Avisa si la señal entra por otro canal (posible cruce), si suena otro a la vez y si a un par estéreo le falta un lado.
+// En los dos se detecta posible ruido constante.
 const LC_SIGNAL = -40;       // dB: por encima, el canal tiene señal
+const LC_HITS = 3;           // lecturas seguidas por encima de LC_SIGNAL: no cuenta un chasquido suelto
 const LC_NOISE_MAX = -45;    // ruido: nivel bajo…
 const LC_NOISE_MIN = -80;
 const LC_NOISE_RANGE = 3;    // …y casi constante (variación menor de 3 dB)…
 const LC_NOISE_SECONDS = 5;  // …durante 5 segundos
-const lc = { active: false, startedAt: 0, items: [] };
-function lcStart() {
-  const gi = state.layout ? state.layout.groups.findIndex((g) => g.id === 'ch') : -1;
-  const n = gi >= 0 ? state.layout.groups[gi].strips.length : 0;
+const LC_CROSS_MS = 1500;    // guiado: otro canal con señal este tiempo y el que toca sin ella → posible cruce
+const LC_ALSO_DB = 20;       // guiado: otro canal a menos de 20 dB del que toca → "también suena"
+const LC_STEREO_DB = 6;      // par estéreo: diferencia máxima de pico entre los dos lados (la DiGiCo mide en escalones de 3 dB)
+const LC_ADVANCE_MS = 1200;  // guiado: tiempo con el ✓ a la vista antes de pasar al siguiente
+const lc = { active: false, startedAt: 0, mode: 'guided', items: [], byCh: new Map(), steps: [], cur: -1, hot: new Map(), busy: new Set(), cfg: { chs: null, pairs: [] } };
+let lcLast = null; // últimos niveles de las entradas (para saber qué canales ya sonaban al empezar un paso)
+
+const lcChGroup = () => (state.layout ? state.layout.groups.findIndex((g) => g.id === 'ch') : -1);
+const lcCount = () => { const gi = lcChGroup(); return gi >= 0 ? state.layout.groups[gi].strips.length : 0; };
+const lcLabel = (i) => { const gi = lcChGroup(); return gi >= 0 ? stripLabel(gi, i) : String(i + 1); };
+// Pares estéreo que dice la mesa (Yamaha, X32): [[a, b]] con a < b.
+function lcAutoPairs() {
+  const ch = state.control && state.control.ch;
+  if (!Array.isArray(ch)) return [];
+  const out = [];
+  ch.forEach((c, i) => { if (c && Number.isInteger(c.pair) && c.pair > i && c.pair < ch.length) out.push([i, c.pair]); });
+  return out;
+}
+// Pares pedidos por la app, ya comprobados: los dos canales elegidos y ninguno repetido.
+function lcCleanPairs(pairs, chs) {
+  const sel = new Set(chs), used = new Set(), out = [];
+  for (const pr of Array.isArray(pairs) ? pairs.slice(0, 144) : []) {
+    if (!Array.isArray(pr) || pr.length !== 2) continue;
+    const [a, b] = pr.map(Number).sort((x, y) => x - y);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a === b || !sel.has(a) || !sel.has(b) || used.has(a) || used.has(b)) continue;
+    used.add(a); used.add(b); out.push([a, b]);
+  }
+  return out;
+}
+
+function lcStart(opts = {}) {
+  const n = lcCount();
+  const all = [...Array(n).keys()];
+  let chs = Array.isArray(opts.chs) ? [...new Set(opts.chs.map(Number))].filter((i) => Number.isInteger(i) && i >= 0 && i < n).sort((a, b) => a - b) : all;
+  if (!chs.length) chs = all;
+  const pairs = lcCleanPairs(opts.pairs, chs);
+  lc.mode = opts.mode === 'free' ? 'free' : 'guided';
+  lc.cfg = { chs, pairs };
   lc.active = true; lc.startedAt = Date.now();
-  lc.items = Array.from({ length: n }, (_, i) => ({ i, ok: false, peak: -90, noise: false, level: -90, above: 0, win: [] }));
+  lc.items = chs.map((i) => ({ i, ok: false, peak: -90, noise: false, level: -90, above: 0, win: [] }));
+  lc.byCh = new Map(lc.items.map((it) => [it.i, it]));
+  const partner = new Map(pairs.flatMap(([a, b]) => [[a, b], [b, a]]));
+  lc.steps = [];
+  for (const i of chs) {
+    const j = partner.get(i);
+    if (j != null && j < i) continue; // el lado derecho va en el paso del izquierdo
+    lc.steps.push({ chs: j != null ? [i, j] : [i], state: 'pending', doneAt: 0, cross: null, also: new Set(), missing: null, unbalanced: false });
+  }
+  lcGoto(lc.mode === 'guided' ? 0 : -1);
+}
+
+// Va al paso k (−1 = ninguno). Al volver a un paso ya hecho, se repite desde cero.
+function lcGoto(k) {
+  lc.cur = lc.mode === 'guided' && k >= 0 && k < lc.steps.length ? k : -1;
+  const st = lc.steps[lc.cur];
+  if (st) {
+    Object.assign(st, { state: 'pending', doneAt: 0, cross: null, also: new Set(), missing: null, unbalanced: false });
+    for (const i of st.chs) { const it = lc.byCh.get(i); if (it) Object.assign(it, { ok: false, peak: -90, above: 0 }); }
+  }
+  // Los canales que ya suenan al empezar el paso (ambiente, reproducción…) no cuentan como cruce hasta que se callen.
+  lc.hot = new Map();
+  lc.busy = new Set();
+  if (st && lcLast) lcLast.forEach((db, i) => { if (db >= LC_SIGNAL && !st.chs.includes(i)) lc.busy.add(i); });
+  if (lc.mode === 'guided' && lc.active && lc.cur < 0) lc.active = false; // no quedan pasos: terminado
   lcSend();
 }
+// Siguiente paso pendiente después de k (y si no hay, el primero pendiente desde el principio); −1 si no queda ninguno.
+function lcNextPending(k) {
+  for (let j = k + 1; j < lc.steps.length; j++) if (lc.steps[j].state === 'pending') return j;
+  for (let j = 0; j <= k && j < lc.steps.length; j++) if (lc.steps[j].state === 'pending') return j;
+  return -1;
+}
+function lcCommand(msg) {
+  if (msg.type === 'lc-start') { lcStart(msg); return; }
+  if (msg.type === 'lc-stop') { lc.active = false; lc.cur = -1; lcSend(); return; }
+  if (!lc.active || lc.mode !== 'guided') return;
+  const st = lc.steps[lc.cur];
+  if (msg.type === 'lc-next') { if (st && st.state === 'pending') st.state = 'skip'; lcGoto(lcNextPending(lc.cur)); }
+  else if (msg.type === 'lc-prev') lcGoto(Math.max(0, lc.cur - 1));
+  else if (msg.type === 'lc-repeat') lcGoto(lc.cur);
+  else if (msg.type === 'lc-goto' && Number.isInteger(msg.step) && msg.step >= 0 && msg.step < lc.steps.length) lcGoto(msg.step);
+}
+
 function lcLevels(levels) {
-  if (!lc.active || !state.layout) return;
-  const gi = state.layout.groups.findIndex((g) => g.id === 'ch');
+  const gi = lcChGroup();
   const arr = gi >= 0 && levels[gi];
   if (!arr) return;
-  const now = Date.now();
+  lcLast = arr;
+  if (!lc.active) return;
+  const now = Date.now(), guided = lc.mode === 'guided';
   arr.forEach((db, i) => {
-    const it = lc.items[i];
+    if (guided) { // señal de cada canal en el paso actual, elegido o no
+      const h = lc.hot.get(i) || { above: 0, since: 0, peak: -90 };
+      if (db >= LC_SIGNAL) { h.above++; if (h.above === LC_HITS) h.since = now; if (db > h.peak) h.peak = db; }
+      else { h.above = 0; lc.busy.delete(i); }
+      lc.hot.set(i, h);
+    }
+    const it = lc.byCh.get(i);
     if (!it) return;
     it.level = db;
     if (db > it.peak) it.peak = db;
     it.above = db >= LC_SIGNAL ? it.above + 1 : 0;
-    if (it.above >= 3) it.ok = true; // 3 lecturas seguidas: no cuenta un chasquido suelto
+    if (!guided && it.above >= LC_HITS) it.ok = true; // en guiado se marca solo el canal que toca (ver lcGuided)
     it.win.push([now, db]);
     while (it.win.length && now - it.win[0][0] > LC_NOISE_SECONDS * 1000) it.win.shift();
     if (!it.noise && it.win.length > 20 && now - it.win[0][0] >= (LC_NOISE_SECONDS - 0.5) * 1000) {
@@ -496,16 +582,51 @@ function lcLevels(levels) {
       if (mx <= LC_NOISE_MAX && mn >= LC_NOISE_MIN && mx - mn < LC_NOISE_RANGE) it.noise = true;
     }
   });
+  if (guided) lcGuided(now);
 }
+
+function lcGuided(now) {
+  const st = lc.steps[lc.cur];
+  if (!st) return;
+  const hot = (i) => { const h = lc.hot.get(i); return h && h.above >= LC_HITS ? h : null; };
+  const others = [...lc.hot].filter(([i, h]) => h.above >= LC_HITS && !st.chs.includes(i) && !lc.busy.has(i));
+  const sides = st.chs.map(hot);
+  if (sides.every(Boolean)) {
+    const top = Math.max(...sides.map((h) => h.peak));
+    for (const [i, h] of others) if (h.peak >= top - LC_ALSO_DB) st.also.add(i);
+    if (st.state !== 'ok') {
+      st.state = 'ok'; st.doneAt = now; st.cross = null; st.missing = null;
+      st.unbalanced = sides.length === 2 && Math.abs(sides[0].peak - sides[1].peak) > LC_STEREO_DB;
+      for (const i of st.chs) { const it = lc.byCh.get(i); if (it) it.ok = true; }
+    }
+  }
+  if (st.state === 'ok') { if (now - st.doneAt >= LC_ADVANCE_MS) lcGoto(lcNextPending(lc.cur)); return; }
+  // Los avisos se mantienen aunque la señal pare, hasta que el paso se dé por bueno o se repita.
+  const lit = st.chs.filter((i, k) => sides[k]);
+  if (lit.length) st.cross = null; // ya suena el que toca: no era un cruce
+  // Par estéreo con un solo lado: cuál falta
+  if (st.chs.length === 2 && lit.length === 1 && now - hot(lit[0]).since >= LC_CROSS_MS) st.missing = st.chs.find((i) => i !== lit[0]);
+  // El que toca no suena y otro sí: posible cruce
+  if (!lit.length && st.missing == null) { const o = others.find(([, h]) => now - h.since >= LC_CROSS_MS); if (o) st.cross = o[0]; }
+}
+
 function lcPayload() {
-  const gi = state.layout ? state.layout.groups.findIndex((g) => g.id === 'ch') : -1;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const n = lcCount();
+  const st = lc.steps[lc.cur];
   return {
-    type: 'lc', active: lc.active, startedAt: lc.startedAt,
-    items: lc.items.map((it) => ({ i: it.i, label: gi >= 0 ? stripLabel(gi, it.i) : String(it.i + 1), ok: it.ok, noise: it.noise,
-      peak: Math.round(it.peak * 10) / 10, level: Math.round(it.level * 10) / 10 })),
+    type: 'lc', active: lc.active, startedAt: lc.startedAt, mode: lc.mode, cur: lc.cur,
+    chans: Array.from({ length: n }, (_, i) => ({ i, label: lcLabel(i), named: !!(state.layout.groups[lcChGroup()].strips[i] || {}).name })), // n = 0 sin layout
+    cfg: lc.cfg, autoPairs: lcAutoPairs(),
+    items: lc.items.map((it) => ({ i: it.i, label: lcLabel(it.i), ok: it.ok, noise: it.noise, peak: r1(it.peak), level: r1(it.level) })),
+    steps: lc.steps.map((s) => ({
+      chs: s.chs, label: s.chs.map(lcLabel).join(' + '), state: s.state,
+      cross: s.cross != null ? lcLabel(s.cross) : '', also: [...s.also].map(lcLabel), missing: s.missing != null ? lcLabel(s.missing) : '', unbalanced: s.unbalanced,
+    })),
+    live: st && lcLast ? st.chs.map((i) => r1(lcLast[i] ?? -90)) : [],
   };
 }
-function lcSend() { linkBroadcast(lcPayload()); }
+function lcSend() { if (state.layout) linkBroadcast(lcPayload()); }
 setInterval(() => { if (lc.active) lcSend(); }, 250);
 
 function broadcast(obj, filter = () => true) {
@@ -531,7 +652,7 @@ function startDriver(cfg) {
   if (driver) { driver.removeAllListeners(); driver.stop(); driver = null; }
   state.layout = state.levels = state.raw = state.control = state.meterFall = state.meterRise = null;
   resetShowLog();
-  lc.active = false; lc.items = [];
+  lc.active = false; lc.items = []; lc.steps = []; lc.cur = -1; lcLast = null;
   broadcast({ type: 'clip-log', events: [] });
   broadcast({ type: 'history-cleared' });
   broadcast({ type: 'reset' });
@@ -543,7 +664,7 @@ function startDriver(cfg) {
   catch (e) { return setStatus({ state: 'error', detail: e.message, key: 'st.driverError', p: { msg: e.message } }); }
   broadcast(meterPointMsg());
   driver.on('status', setStatus);
-  driver.on('layout', (l) => { state.layout = l; broadcast({ type: 'layout', ...l }); });
+  driver.on('layout', (l) => { state.layout = l; broadcast({ type: 'layout', ...l }); if (ROLE === 'sala') lcSend(); }); // nombres de canal para elegir en el line check
   driver.on('levels', (g) => { state.levels = g; dirty = true; if (ROLE === 'sala') { logLevels(g); lcLevels(g); } });
   driver.on('raw', (r) => { state.raw = r; });
   driver.on('meterPoint', (v) => { prefs.meterPoint = v; broadcast(meterPointMsg()); });

@@ -26,6 +26,7 @@ class Simulator extends EventEmitter {
       const beat = t * 2; // 120 bpm
       const hit = (phase, decay) => Math.exp(-frac(phase) * decay);
       const song = 0.5 + 0.5 * Math.sin(t / 9); // intensidad que sube y baja
+      if (process.env.SIM_LINECHECK) return this.emit('levels', this.lineCheckLevels(t));
       const ch = CH.map((name, i) => {
         if (name === 'Talk') return -90;
         if (name === 'Bombo') return -42 + 38 * hit(beat, 9) + noise();
@@ -40,6 +41,21 @@ class Simulator extends EventEmitter {
       const main = [mix - 1 + noise(), mix - 1.5 + noise()];
       this.emit('levels', [ch, bus, main].map((g) => g.map((v) => Math.min(0, v))));
     }, 33);
+  }
+
+  // SIM_LINECHECK=1: simula un line check. Cada 2,5 s "alguien" da señal al siguiente canal, con tres fallos a propósito:
+  // Tom 2 entra por el canal de Base (cruce), a Teclas R no le llega nada (par estéreo con un lado) y con la Voz suena también Coro 1.
+  lineCheckLevels(t) {
+    const k = Math.floor(t / 2.5) % CH.length;
+    const ch = CH.map(() => -90);
+    const on = (i, db = -18) => { ch[i] = db + noise(); };
+    if (k === 4) on(5);                      // Tom 2 → suena Base
+    else if (k === 6 || k === 7) { on(6); on(7); } // OH L y OH R a la vez
+    else if (k === 12 || k === 13) on(12);   // Teclas L sí, Teclas R no
+    else if (k === 15) { on(15); on(16, -26); } // Voz, y Coro 1 abierto
+    else on(k);
+    ch[19] = -60 + noise() * 0.5;            // PC L: zumbido bajo y constante
+    return [ch, BUS.map(() => -90), [-90, -90]];
   }
 
   stop() { clearInterval(this.timer); }

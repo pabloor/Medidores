@@ -454,7 +454,7 @@
   .lc-top button[hidden] { display: none; }
   .lc-hint { font-size: 14px; color: var(--muted); margin: 0 0 8px; line-height: 1.35; }
   .lc-list { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; }
-  .lc-list li { display: grid; grid-template-columns: minmax(0, 1fr) 60px auto; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 15px; cursor: pointer; }
+  .lc-list li { display: grid; grid-template-columns: minmax(90px, 1fr) 60px auto; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 15px; cursor: pointer; }
   .lc-list li:last-child { border-bottom: 0; }
   .lc-list li[hidden] { display: none; }
   .lc-list .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -464,6 +464,26 @@
   .lc-list li.ok .st { color: var(--sig); }
   .lc-list li.noise .st { color: var(--warm); }
   .lc-sum { font-size: 14px; margin: 8px 0 0; }
+  .lc-list li.warn .st { color: var(--warm); white-space: normal; } /* un aviso largo pasa a otra línea y no tapa el nombre */
+  .lc-list li.cur { box-shadow: inset 4px 0 0 var(--sig); }
+  .lc-mode { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .lc-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); margin: 4px 0 6px; }
+  .lc-pick button, .lc-now .nav button { padding: 6px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 14px; cursor: pointer; }
+  .lc-chans { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 2px 10px; max-height: 30vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; margin-bottom: 8px; }
+  .lc-chans label { display: flex; align-items: center; gap: 6px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .lc-chans input { flex: none; width: 16px; height: 16px; accent-color: var(--sig); }
+  #lcSetup .set-field { display: block; margin-bottom: 8px; }
+  .lc-now { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 0 0 10px; background: var(--stage); }
+  .lc-now .lbl { font-size: 13px; color: var(--muted); }
+  .lc-now .cur { font-size: 28px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+  .lc-now .meters { display: grid; gap: 4px; margin: 8px 0; }
+  .lc-now .meters span { display: block; height: 14px; border-radius: 7px; background: var(--well); overflow: hidden; }
+  .lc-now .meters i { display: block; height: 100%; width: 0; background: var(--sig); }
+  .lc-now .state { font-size: 16px; min-height: 1.3em; }
+  .lc-now .state.ok { color: var(--sig); }
+  .lc-now .state.warn { color: var(--warm); }
+  .lc-now .next { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .lc-now .nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .set-btn { display: block; width: 100%; margin: 4px 0 10px; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 16px; cursor: pointer; }
   #settings .set-field { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
   #settings .set-field[hidden] { display: none; }
@@ -674,6 +694,23 @@
 
 <dialog id="lcDlg" aria-labelledby="lcTitle">
   <h2 id="lcTitle" data-i18n="lc.title"></h2>
+  <div id="lcSetup" hidden>
+    <div class="lc-mode">
+      <label class="chk"><input type="radio" name="lcMode" value="guided"><span data-i18n="lc.modeGuided"></span></label>
+      <label class="chk"><input type="radio" name="lcMode" value="free"><span data-i18n="lc.modeFree"></span></label>
+    </div>
+    <div class="lc-pick"><span data-i18n="lc.channels"></span><button id="lcPickNamed" data-i18n="lc.pickNamed"></button><button id="lcPickAll" data-i18n="lc.pickAll"></button><button id="lcPickNone" data-i18n="lc.pickNone"></button></div>
+    <div class="lc-chans" id="lcChans"></div>
+    <label class="set-field"><span data-i18n="lc.pairs"></span><small id="lcPairsHint"></small><input id="lcPairs" autocomplete="off" spellcheck="false" placeholder="7-8, 13-14"></label>
+  </div>
+  <div class="lc-now" id="lcNow" hidden>
+    <div class="lbl" data-i18n="lc.now"></div>
+    <div class="cur" id="lcCur"></div>
+    <div class="meters" id="lcLive"></div>
+    <div class="state" id="lcState"></div>
+    <div class="next" id="lcNext"></div>
+    <div class="nav"><button id="lcPrev" data-i18n="lc.prev"></button><button id="lcRepeat" data-i18n="lc.repeat"></button><button id="lcSkip" data-i18n="lc.skip"></button></div>
+  </div>
   <div class="lc-top">
     <div class="prog" id="lcProg"></div>
     <button id="lcStart" class="primary"></button>
@@ -1957,21 +1994,96 @@
   $('msgText').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('msgSend').click(); });
 
   // --- Line check
-  let lcRows = [];
+  // Antes de empezar se eligen el modo (guiado o libre), los canales y los pares estéreo. La elección se guarda en cada móvil.
+  // En guiado, el servidor va paso a paso (un canal o un par) y aquí se muestra el que toca, el siguiente y los avisos.
+  let lcRows = [], lcChansKey = '', lcLastCur = -1, lcLastOk = false;
+  const lcMode = () => store.get('lcMode', 'guided');
+  const lcPairsText = (pairs) => pairs.map(([a, b]) => `${a + 1}-${b + 1}`).join(', ');
+  function lcParsePairs(txt) {
+    const out = [];
+    for (const m of String(txt).matchAll(/(\d+)\s*[-–/+]\s*(\d+)/g)) out.push([Number(m[1]) - 1, Number(m[2]) - 1]);
+    return out;
+  }
+  // Canales elegidos: los guardados en este móvil; si no hay, los que tienen nombre (o todos si ninguno lo tiene).
+  function lcSelected(chans) {
+    const saved = store.get('lcSel', null);
+    if (Array.isArray(saved)) return new Set(saved.filter((i) => i < chans.length));
+    const named = chans.filter((c) => c.named).map((c) => c.i);
+    return new Set(named.length ? named : chans.map((c) => c.i));
+  }
+  function renderLcSetup() {
+    const chans = lcState.chans || [];
+    const key = chans.map((c) => c.label).join('|');
+    if (key !== lcChansKey) { // solo se reconstruye si cambian los canales: no se pierde el desplazamiento de la lista
+      lcChansKey = key;
+      const sel = lcSelected(chans);
+      $('lcChans').innerHTML = chans.map((c) => `<label><input type="checkbox" value="${c.i}"${sel.has(c.i) ? ' checked' : ''}><span>${esc(c.label)}</span></label>`).join('');
+      $('lcChans').querySelectorAll('input').forEach((x) => x.onchange = lcSaveSel);
+    }
+    document.querySelectorAll('input[name=lcMode]').forEach((x) => { x.checked = x.value === lcMode(); });
+    const auto = lcState.autoPairs || [];
+    $('lcPairsHint').textContent = auto.length ? `${t('lc.pairsHint')} ${t('lc.pairsAuto', { list: lcPairsText(auto) })}` : t('lc.pairsHint');
+    if (document.activeElement !== $('lcPairs')) $('lcPairs').value = store.get('lcPairs', null) ?? lcPairsText(auto);
+  }
+  function lcSaveSel() { store.set('lcSel', [...$('lcChans').querySelectorAll('input:checked')].map((x) => Number(x.value))); }
+  function lcPick(fn) { $('lcChans').querySelectorAll('input').forEach((x, k) => { x.checked = fn((lcState.chans || [])[k] || {}); }); lcSaveSel(); }
+  document.querySelectorAll('input[name=lcMode]').forEach((x) => x.onchange = () => { store.set('lcMode', x.value); renderLc(); });
+  $('lcPickNamed').onclick = () => lcPick((c) => c.named);
+  $('lcPickAll').onclick = () => lcPick(() => true);
+  $('lcPickNone').onclick = () => lcPick(() => false);
+  $('lcPairs').onchange = () => store.set('lcPairs', $('lcPairs').value);
+
+  // Texto de estado de un paso del line check guiado
+  function lcStepText(s, peak) {
+    if (s.state === 'ok') return [`✓ ${fmtNum(peak)} dB`, s.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', s.also.length ? `⚠ ${t('lc.also', { list: s.also.join(', ') })}` : ''].filter(Boolean).join(' · ');
+    const warn = s.cross ? `⚠ ${t('lc.cross', { ch: s.cross })}` : s.missing ? `⚠ ${t('lc.sideMissing', { ch: s.missing })}` : '';
+    return [s.state === 'skip' ? t('lc.skipped') : '', warn].filter(Boolean).join(' · '); // un paso saltado conserva su aviso
+  }
   function renderLc() {
     if (!$('lcDlg').open) return;
-    const items = lcState.items || [];
-    const ok = items.filter((x) => x.ok).length, noisy = items.filter((x) => x.noise).length;
+    const items = lcState.items || [], steps = lcState.steps || [];
+    const guided = lcState.mode === 'guided' && steps.length;
+    const byCh = new Map(items.map((it) => [it.i, it]));
+    const stepPeak = (s) => Math.max(...s.chs.map((i) => (byCh.get(i) || { peak: -90 }).peak));
+    $('lcSetup').hidden = !!lcState.active;
+    if (!lcState.active) renderLcSetup();
     $('lcStart').textContent = t(items.length ? 'lc.restart' : 'lc.start');
     $('lcStop').hidden = !lcState.active;
+    const done = guided ? steps.filter((s) => s.state === 'ok').length : items.filter((x) => x.ok).length;
+    const total = guided ? steps.length : items.length, noisy = items.filter((x) => x.noise).length;
     $('lcProg').innerHTML = items.length
-      ? `${esc(t('lc.progress', { ok, n: items.length }))}${noisy ? `<small>${esc(t('lc.noiseCount', { n: noisy }))}</small>` : ''}`
+      ? `${esc(t('lc.progress', { ok: done, n: total }))}${noisy ? `<small>${esc(t('lc.noiseCount', { n: noisy }))}</small>` : ''}`
       : '';
-    $('lcHint').textContent = !items.length ? t('lc.idle') : lcState.active ? t('lc.tapHint') : t('lc.finished');
+    $('lcHint').textContent = lcState.active ? t('lc.tapHint') : items.length ? t('lc.finished') : t(lcMode() === 'guided' ? 'lc.hintGuided' : 'lc.idle');
+    // Paso actual (guiado)
+    const cur = guided && lcState.active ? steps[lcState.cur] : null;
+    $('lcNow').hidden = !cur;
+    if (cur) {
+      $('lcCur').textContent = cur.label;
+      const live = lcState.live || [];
+      if ($('lcLive').children.length !== cur.chs.length) $('lcLive').innerHTML = cur.chs.map(() => '<span><i></i></span>').join('');
+      [...$('lcLive').querySelectorAll('i')].forEach((el, k) => { el.style.width = `${Math.round(pos(live[k] ?? -90) * 100)}%`; });
+      const txt = lcStepText(cur, stepPeak(cur));
+      $('lcState').textContent = txt || t('lc.waiting');
+      $('lcState').className = `state${cur.state === 'ok' ? ' ok' : txt ? ' warn' : ''}`;
+      const nxt = steps.find((s, k) => k > lcState.cur && s.state === 'pending');
+      $('lcNext').textContent = nxt ? t('lc.next', { name: nxt.label }) : t('lc.last');
+      $('lcPrev').disabled = lcState.cur <= 0;
+      // vibración corta al dar un paso por bueno (Android)
+      if (lcState.cur === lcLastCur && cur.state === 'ok' && !lcLastOk) { try { navigator.vibrate && navigator.vibrate(80); } catch {} }
+      lcLastCur = lcState.cur; lcLastOk = cur.state === 'ok';
+    }
+    // Lista: en guiado, un renglón por paso; en libre, uno por canal
+    const rows = guided
+      ? steps.map((s, k) => ({ label: s.label, level: (byCh.get(s.chs[0]) || {}).level ?? -90, ok: s.state === 'ok', cur: lcState.active && k === lcState.cur,
+          noise: s.chs.some((i) => (byCh.get(i) || {}).noise), warn: !!(s.cross || s.missing || s.unbalanced || s.also.length),
+          st: [lcStepText(s, stepPeak(s)), s.chs.some((i) => (byCh.get(i) || {}).noise) ? `⚠ ${t('lc.noise')}` : ''].filter(Boolean).join(' · ') || (lcState.active && k === lcState.cur ? t('lc.now') : t('lc.pending')) }))
+      : items.map((it) => ({ label: it.label, level: it.level, ok: it.ok, cur: false, noise: it.noise, warn: false,
+          st: [it.ok ? `✓ ${fmtNum(it.peak)} dB` : '', it.noise ? `⚠ ${t('lc.noise')}` : '', !it.ok && !it.noise ? t('lc.pending') : ''].filter(Boolean).join(' · ') }));
     const ul = $('lcList');
-    if (lcRows.length !== items.length) {
+    if (lcRows.length !== rows.length) {
       ul.innerHTML = '';
-      lcRows = items.map(() => {
+      lcRows = rows.map(() => {
         const li = document.createElement('li');
         li.innerHTML = '<span class="nm"></span><span class="lvl"><i></i></span><span class="st"></span>';
         li.onclick = () => { $('lcDlg').close(); openMsgs(li.dataset.label); };
@@ -1980,17 +2092,20 @@
       });
     }
     const onlyPending = $('lcPending').checked;
-    items.forEach((it, k) => {
+    rows.forEach((row, k) => {
       const r = lcRows[k];
-      r.li.dataset.label = it.label;
-      r.nm.textContent = it.label;
-      r.bar.style.width = `${Math.round(pos(lcState.active ? it.level : -90) * 100)}%`;
-      r.li.classList.toggle('ok', it.ok);
-      r.li.classList.toggle('noise', it.noise);
-      r.st.textContent = [it.ok ? `✓ ${fmtNum(it.peak)} dB` : '', it.noise ? `⚠ ${t('lc.noise')}` : '', !it.ok && !it.noise ? t('lc.pending') : ''].filter(Boolean).join(' · ');
-      r.li.hidden = onlyPending && it.ok && !it.noise;
+      r.li.dataset.label = row.label.split(' + ')[0];
+      r.nm.textContent = row.label;
+      r.bar.style.width = `${Math.round(pos(lcState.active ? row.level : -90) * 100)}%`;
+      r.li.classList.toggle('ok', row.ok);
+      r.li.classList.toggle('noise', row.noise);
+      r.li.classList.toggle('warn', row.warn);
+      r.li.classList.toggle('cur', row.cur);
+      r.st.textContent = row.st;
+      r.li.hidden = onlyPending && row.ok && !row.noise && !row.warn;
     });
-    const missing = items.filter((x) => !x.ok).map((x) => x.label.split(' ')[0]);
+    const num = (label) => label.split(' + ').map((l) => l.split(' ')[0]).join('+'); // "13 Teclas L + 14 Teclas R" → "13+14"
+    const missing = (guided ? steps.filter((s) => s.state !== 'ok').map((s) => s.label) : items.filter((x) => !x.ok).map((x) => x.label)).map(num);
     $('lcSum').textContent = items.length && !lcState.active ? t('lc.missing', { list: missing.length ? missing.join(', ') : t('lc.none') }) : '';
   }
   $('openLc').onclick = () => {
@@ -1998,10 +2113,19 @@
     dlg.close();
     $('lcPending').checked = store.get('lcPending', false);
     $('lcDlg').showModal();
-    lcRows = []; renderLc();
+    lcRows = []; lcChansKey = ''; renderLc();
   };
-  $('lcStart').onclick = () => { sendShared({ type: 'lc-start' }); };
+  $('lcStart').onclick = () => {
+    const chs = [...$('lcChans').querySelectorAll('input:checked')].map((x) => Number(x.value));
+    if (!$('lcSetup').hidden && !chs.length) return toast(t('lc.nothingSelected'));
+    store.set('lcPairs', $('lcPairs').value);
+    lcRows = [];
+    sendShared({ type: 'lc-start', mode: lcMode(), chs: $('lcSetup').hidden ? (lcState.cfg || {}).chs : chs, pairs: $('lcSetup').hidden ? (lcState.cfg || {}).pairs : lcParsePairs($('lcPairs').value) });
+  };
   $('lcStop').onclick = () => { sendShared({ type: 'lc-stop' }); };
+  $('lcPrev').onclick = () => { sendShared({ type: 'lc-prev' }); };
+  $('lcRepeat').onclick = () => { sendShared({ type: 'lc-repeat' }); };
+  $('lcSkip').onclick = () => { sendShared({ type: 'lc-next' }); };
   $('lcPending').onchange = () => { store.set('lcPending', $('lcPending').checked); renderLc(); };
   $('closeLc').onclick = () => $('lcDlg').close();
 

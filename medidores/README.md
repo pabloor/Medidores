@@ -36,6 +36,7 @@ Al actualizar la app (sustituyendo la carpeta), basta con volver a hacer doble c
     node server.js                                   # abre la pantalla de conexión
     node server.js --driver yamaha --ip 192.168.1.20 # conecta directamente
     node server.js --driver sim                      # simulador
+    SIM_LINECHECK=1 node server.js --driver sim      # simulador de line check: un canal cada 2,5 s, con un cruce, un par sin un lado y un micro abierto
     node server.js --port 8080                       # otro puerto
 
 ## Quién puede controlar la mesa
@@ -62,7 +63,11 @@ La clave se guarda en `prefs.json` y se conserva al reiniciar, así que los cód
 Estas dos funciones se comparten con la versión de escenario (solo lectura). Esta app hace de centro: los móviles de escenario se enlazan con ella a través del puerto 3000 del mismo ordenador. El enlace solo transporta mensajes y line check: no da acceso a los medidores de esta app ni a ningún control de la mesa.
 
 - **Mensajes:** el botón del bocadillo, arriba, abre los mensajes. Hay mensajes rápidos ("Listo", "Cambia la pila", "Revisa el cable", "No llega señal"…), que cada móvil ve en su idioma, y texto libre, y se puede indicar un canal. Los mensajes que llegan se muestran en grande, debajo de la barra superior, hasta pulsar **Visto**; quien los envió ve quién los ha leído. En Android, el móvil vibra; en iPhone, Safari no lo permite. En Ajustes puedes poner tu nombre.
-- **Line check:** en Ajustes → Line check. Pulsa **Empezar** y ve dando señal a cada micro o línea: cada canal de entrada se marca solo al recibir señal clara (por encima de −40 dB durante un instante), con su pico. Los canales con un nivel bajo (entre −80 y −45 dB) y casi constante durante 5 segundos se marcan como posible ruido o zumbido. Todos los móviles, de sala y de escenario, ven el mismo line check en directo. Al terminar, se indica qué canales no han dado señal. Tocando un canal se abre un mensaje sobre él.
+- **Line check:** en Ajustes → Line check. Antes de empezar se eligen los canales (los que tienen nombre, todos o los que marques) y los pares estéreo. Los pares que tiene enlazados la mesa (Yamaha, X32) se proponen solos; en DiGiCo se escriben a mano, por ejemplo `7-8, 13-14`. Hay dos modos:
+  - **Guiado** (por defecto): los canales van de uno en uno. Sala y escenario ven en grande el que toca ("Ahora: 5 Bombo · Siguiente: 6 Caja") con su medidor. Cuando recibe señal clara (por encima de −40 dB durante un instante), se marca con su pico y se pasa al siguiente. Avisa si la señal entra por otro canal (posible cruce de patch), si otro canal suena a la vez a menos de 20 dB (diafonía o micro abierto), si a un par estéreo solo le llega un lado y si los dos lados llegan con más de 6 dB de diferencia. Los canales que ya sonaban al empezar un paso (ambiente, reproducción) no cuentan como cruce. Desde cualquier móvil se puede volver al anterior, repetir o saltar.
+  - **Libre:** cada canal se marca solo al recibir señal clara, en cualquier orden.
+
+  En los dos, los canales con un nivel bajo (entre −80 y −45 dB) y casi constante durante 5 segundos se marcan como posible ruido o zumbido. Todos los móviles, de sala y de escenario, ven el mismo line check en directo. Al terminar, se indica qué canales no han dado señal. Tocando un canal se abre un mensaje sobre él.
 
 ## Idioma
 
