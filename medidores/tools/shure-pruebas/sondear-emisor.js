@@ -48,18 +48,19 @@ function note(ip, msg) {
 
 function connect(target) {
   const [host, port] = target.includes(':') ? target.split(':') : [target, '2202'];
+  const name = port === '2202' ? host : `${host}:${port}`; // con el puerto si no es el normal (p. ej. dos emisores falsos)
   const sock = net.connect({ host, port: Number(port), ...(LOCAL ? { localAddress: LOCAL } : {}) });
   sock.setEncoding('ascii');
-  const send = (cmd) => { if (!sock.destroyed) sock.write(`< ${cmd} >\r\n`); log.write(`${((Date.now() - t0) / 1000).toFixed(2)}  ${host} -> ${cmd}\n`); };
+  const send = (cmd) => { if (!sock.destroyed) sock.write(`< ${cmd} >\r\n`); log.write(`${((Date.now() - t0) / 1000).toFixed(2)}  ${name} -> ${cmd}\n`); };
   let buf = '';
   sock.on('connect', async () => {
-    console.log(`[${host}] conectado`);
+    console.log(`[${name}] conectado`);
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     for (const k of INFO) { send(`GET ${k}`); await wait(40); }
     send('GET 0 ALL'); await wait(400); // en Axient Digital devuelve todos los parámetros de todos los canales
     for (let c = 1; c <= CANALES; c++) for (const k of PER_CH) { send(`GET ${c} ${k}`); await wait(40); }
     for (let c = 1; c <= CANALES; c++) { send(`SET ${c} METER_RATE ${String(RATE).padStart(5, '0')}`); await wait(40); }
-    console.log(`[${host}] medición activada cada ${RATE} ms. Manda tono a cada bus, uno detrás de otro, unos segundos cada uno.`);
+    console.log(`[${name}] medición activada cada ${RATE} ms. Manda tono a cada bus, uno detrás de otro, unos segundos cada uno.`);
   });
   sock.on('data', (d) => {
     buf += d;
@@ -67,13 +68,13 @@ function connect(target) {
     while ((a = buf.indexOf('<')) >= 0 && (b = buf.indexOf('>', a)) >= 0) {
       const msg = buf.slice(a + 1, b).trim();
       buf = buf.slice(b + 1);
-      log.write(`${((Date.now() - t0) / 1000).toFixed(2)}  ${host} <- ${msg}\n`);
-      note(host, msg);
+      log.write(`${((Date.now() - t0) / 1000).toFixed(2)}  ${name} <- ${msg}\n`);
+      note(name, msg);
     }
   });
-  sock.on('error', (e) => console.log(`[${host}] error: ${e.message}`));
-  sock.on('close', () => console.log(`[${host}] conexión cerrada`));
-  socks.push({ host, sock, send });
+  sock.on('error', (e) => console.log(`[${name}] error: ${e.message}`));
+  sock.on('close', () => console.log(`[${name}] conexión cerrada`));
+  socks.push({ host: name, sock, send });
 }
 
 let done = false;
@@ -87,7 +88,8 @@ async function finish() {
   if (!keys.length) console.log('  No ha llegado ningún mensaje. ¿IP correcta? ¿El emisor tiene el control por red activado?');
   for (const k of keys) {
     const s = stats.get(k);
-    const rate = s.n > 1 ? `${(s.n / Math.max(0.001, (s.last - s.first) / 1000)).toFixed(1)}/s` : '';
+    const span = (s.last - s.first) / 1000;
+    const rate = s.n >= 5 && span >= 1 ? `${((s.n - 1) / span).toFixed(1)}/s` : ''; // solo los mensajes que se repiten
     const fields = s.fields.map((f, i) => {
       const num = Number.isFinite(f.min) ? ` ${f.min}…${f.max}` : '';
       const few = f.vals.size <= 6 ? ` {${[...f.vals].join(', ')}}` : ` (${f.vals.size} valores distintos)`;
