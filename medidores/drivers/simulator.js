@@ -43,7 +43,8 @@ class Simulator extends EventEmitter {
     }, 33);
   }
 
-  // SIM_LINECHECK=1: simula un line check. Cada 2,5 s "alguien" da señal al siguiente canal, con tres fallos a propósito:
+  // SIM_LINECHECK=1: simula un line check. Cada 2,5 s "alguien" da señal al siguiente canal y al siguiente bus, con fallos a propósito.
+  // En los canales:
   // Tom 2 entra por el canal de Base (cruce), a Teclas R no le llega nada (par estéreo con un lado) y con la Voz suena también Coro 1.
   lineCheckLevels(t) {
     const k = Math.floor(t / 2.5) % CH.length;
@@ -55,7 +56,13 @@ class Simulator extends EventEmitter {
     else if (k === 15) { on(15); on(16, -26); } // Voz, y Coro 1 abierto
     else on(k);
     ch[19] = -60 + noise() * 0.5;            // PC L: zumbido bajo y constante
-    return [ch, BUS.map(() => -90), [-90, -90]];
+    // Buses: también uno cada 2,5 s. Mon 3 sale por Mon 4 (cruce) e IEM L/R suenan juntos (par estéreo).
+    const kb = Math.floor(t / 2.5) % BUS.length;
+    const bus = BUS.map(() => -90);
+    if (kb === 2) bus[3] = -20 + noise();
+    else if (kb === 4 || kb === 5) { bus[4] = -20 + noise(); bus[5] = -21 + noise(); }
+    else bus[kb] = -20 + noise();
+    return [ch, bus, [-90, -90]];
   }
 
   stop() { clearInterval(this.timer); }

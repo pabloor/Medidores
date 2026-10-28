@@ -427,6 +427,7 @@
   .msg-banner .txt { font-size: clamp(20px, 5.5vw, 30px); font-weight: 700; line-height: 1.15; }
   .msg-banner .ch { display: block; font-size: .7em; color: var(--g-ch); margin-top: 2px; }
   .msg-banner button { padding: 12px 18px; border-radius: 10px; border: 0; background: var(--g-ch); color: #06222c; font-weight: 700; font-size: 17px; cursor: pointer; }
+  /* compartido:css-linecheck (inicio): se copia de medidores a medidores-solo con tools/sincronizar-escenario.js */
   /* Line check */
   #lcDlg { width: min(560px, 94vw); max-height: 92vh; }
   .lc-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -437,7 +438,7 @@
   .lc-top button[hidden] { display: none; }
   .lc-hint { font-size: 14px; color: var(--muted); margin: 0 0 8px; line-height: 1.35; }
   .lc-list { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; }
-  .lc-list li { display: grid; grid-template-columns: minmax(90px, 1fr) 60px auto; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 15px; cursor: pointer; }
+  .lc-list li { display: grid; grid-template-columns: minmax(90px, 1fr) 60px auto auto; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 15px; cursor: pointer; }
   .lc-list li:last-child { border-bottom: 0; }
   .lc-list li[hidden] { display: none; }
   .lc-list .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -467,6 +468,20 @@
   .lc-now .state.warn { color: var(--warm); }
   .lc-now .next { font-size: 14px; color: var(--muted); margin-top: 4px; }
   .lc-now .nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .lc-list .go { padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 13px; cursor: pointer; }
+  .lc-list .go[hidden] { visibility: hidden; display: inline-block; }
+  .lc-grp { grid-column: 1 / -1; font-size: 13px; color: var(--muted); margin: 6px 0 2px; }
+  .lc-grp:first-child { margin-top: 0; }
+  #lcSetup details { margin: 0 0 8px; font-size: 14px; }
+  #lcSetup summary { cursor: pointer; color: var(--muted); }
+  .lc-thr { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; margin-top: 6px; }
+  .lc-thr label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+  .lc-thr input { box-sizing: border-box; font: inherit; font-size: 15px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); width: 100%; }
+  .lc-cmp { font-size: 14px; margin: 6px 0 0; line-height: 1.4; }
+  .lc-cmp b { font-weight: 600; }
+  .lc-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; font-size: 14px; }
+  .lc-links a { color: var(--sig); }
+  /* compartido:css-linecheck (fin) */
   .set-btn { display: block; width: 100%; margin: 4px 0 10px; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 16px; cursor: pointer; }
   #settings .set-field { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
   #settings .set-field[hidden] { display: none; }
@@ -666,6 +681,7 @@
   <button id="bannerOk" data-i18n="msgs.seen"></button>
 </div>
 
+<!-- compartido:dialogo-linecheck (inicio): se copia a medidores-solo con tools/sincronizar-escenario.js -->
 <dialog id="lcDlg" aria-labelledby="lcTitle">
   <h2 id="lcTitle" data-i18n="lc.title"></h2>
   <div id="lcSetup" hidden>
@@ -676,6 +692,16 @@
     <div class="lc-pick"><span data-i18n="lc.channels"></span><button id="lcPickNamed" data-i18n="lc.pickNamed"></button><button id="lcPickAll" data-i18n="lc.pickAll"></button><button id="lcPickNone" data-i18n="lc.pickNone"></button></div>
     <div class="lc-chans" id="lcChans"></div>
     <label class="set-field"><span data-i18n="lc.pairs"></span><small id="lcPairsHint"></small><input id="lcPairs" autocomplete="off" spellcheck="false" placeholder="7-8, 13-14"></label>
+    <label class="set-field"><span data-i18n="lc.order"></span><small data-i18n="lc.orderHint"></small><input id="lcOrder" autocomplete="off" spellcheck="false" placeholder="1-8, 17-24, 9-16"></label>
+    <details id="lcThrBox"><summary data-i18n="lc.thresholds"></summary>
+      <div class="lc-thr">
+        <label><span data-i18n="lc.thrSignal"></span><input type="number" id="lcThrSignal" step="1"></label>
+        <label><span data-i18n="lc.thrAlso"></span><input type="number" id="lcThrAlso" step="1"></label>
+        <label><span data-i18n="lc.thrStereo"></span><input type="number" id="lcThrStereo" step="1"></label>
+        <label><span data-i18n="lc.thrCross"></span><input type="number" id="lcThrCross" step="0.5"></label>
+      </div>
+      <p class="lc-hint" id="lcThrHint"></p>
+    </details>
   </div>
   <div class="lc-now" id="lcNow" hidden>
     <div class="lbl" data-i18n="lc.now"></div>
@@ -694,8 +720,11 @@
   <label class="chk"><input type="checkbox" id="lcPending"><span data-i18n="lc.onlyPending"></span></label>
   <ul class="lc-list" id="lcList"></ul>
   <p class="lc-sum" id="lcSum"></p>
+  <p class="lc-cmp" id="lcCmp"></p>
+  <div class="lc-links"><button id="lcResume" hidden data-i18n="lc.resume"></button><a id="lcCsv" href="linecheck.csv" download data-i18n="lc.csv"></a></div>
   <div class="actions"><button id="closeLc" data-i18n="btn.close"></button></div>
 </dialog>
+<!-- compartido:dialogo-linecheck (fin) -->
 
 <script>window.APP_VERSION = '__APP_VERSION__'; window.APP_ROLE = '__APP_ROLE__';</script>
 <script src="i18n.js?v=__APP_VERSION__"></script>
@@ -1790,6 +1819,7 @@
     }
   }
 
+  // compartido:js-mensajes-linecheck (inicio): se copia a medidores-solo con tools/sincronizar-escenario.js
   // =============== Mensajes y line check (compartidos entre sala y escenario) ===============
   const MSG_KEYS = ['msg.ready', 'msg.battery', 'msg.cable', 'msg.noSignal', 'msg.noise', 'msg.come', 'msg.wait', 'msg.ok'];
   const myIds = new Set(); // mensajes enviados desde este móvil (por su identificador)
@@ -1905,119 +1935,180 @@
   $('msgText').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('msgSend').click(); });
 
   // --- Line check
-  // Antes de empezar se eligen el modo (guiado o libre), los canales y los pares estéreo. La elección se guarda en cada móvil.
-  // En guiado, el servidor va paso a paso (un canal o un par) y aquí se muestra el que toca, el siguiente y los avisos.
+  // Antes de empezar se eligen el modo (guiado o libre), las tiras (entradas y, si se quiere, buses, matrices y salidas),
+  // los pares estéreo y el orden. La elección se guarda en cada móvil. Las tiras se identifican como "grupo:índice".
+  // Pares y orden se escriben con el número que muestra cada tira (7-8, A1-A2, MX1-MX2…); un rango es "1-8" o "A1-A4".
+  // En guiado, el servidor va paso a paso y aquí se muestra el que toca, el siguiente y los avisos.
   let lcRows = [], lcChansKey = '', lcLastCur = -1, lcLastOk = false;
   const lcMode = () => store.get('lcMode', 'guided');
-  const lcPairsText = (pairs) => pairs.map(([a, b]) => `${a + 1}-${b + 1}`).join(', ');
+  const lcStrips = () => (lcState.groups || []).flatMap((g) => g.strips.map((s) => ({ ...s, gid: g.id })));
+  // número de tira (sin distinguir mayúsculas) → clave
+  const lcNumMap = () => new Map(lcStrips().map((s) => [String(s.num).toLowerCase(), s.k]));
+  const lcNumOf = (k) => { const s = lcStrips().find((x) => x.k === k); return s ? s.num : k; };
+  const lcPairsText = (pairs) => pairs.map(([a, b]) => `${lcNumOf(a)}-${lcNumOf(b)}`).join(', ');
   function lcParsePairs(txt) {
-    const out = [];
-    for (const m of String(txt).matchAll(/(\d+)\s*[-–/+]\s*(\d+)/g)) out.push([Number(m[1]) - 1, Number(m[2]) - 1]);
+    const nm = lcNumMap(), out = [];
+    for (const m of String(txt).matchAll(/([A-Za-z]*\d+[A-Za-z]*)\s*[-–/+]\s*([A-Za-z]*\d+[A-Za-z]*)/g)) {
+      const a = nm.get(m[1].toLowerCase()), b = nm.get(m[2].toLowerCase());
+      if (a && b) out.push([a, b]);
+    }
     return out;
   }
-  // Canales elegidos: los guardados en este móvil; si no hay, los que tienen nombre (o todos si ninguno lo tiene).
-  function lcSelected(chans) {
-    const saved = store.get('lcSel', null);
-    if (Array.isArray(saved)) return new Set(saved.filter((i) => i < chans.length));
-    const named = chans.filter((c) => c.named).map((c) => c.i);
-    return new Set(named.length ? named : chans.map((c) => c.i));
+  // Orden: "1-8, A1-A4, 20" → claves en ese orden (los rangos, dentro de un mismo grupo)
+  function lcParseOrder(txt) {
+    const nm = lcNumMap(), out = [];
+    for (const part of String(txt).split(/[,;]+/)) {
+      const r = part.trim().match(/^([A-Za-z]*\d+[A-Za-z]*)(?:\s*[-–]\s*([A-Za-z]*\d+[A-Za-z]*))?$/);
+      if (!r) continue;
+      const a = nm.get(r[1].toLowerCase()), b = r[2] ? nm.get(r[2].toLowerCase()) : a;
+      if (!a || !b) continue;
+      const [ga, ia] = a.split(':'), [gb, ib] = b.split(':');
+      if (ga !== gb) { out.push(a, b); continue; }
+      const step = Number(ib) >= Number(ia) ? 1 : -1;
+      for (let i = Number(ia); i !== Number(ib) + step; i += step) out.push(`${ga}:${i}`);
+    }
+    return out;
+  }
+  // Tiras elegidas: las guardadas en este móvil; si no hay, las entradas con nombre (o todas las entradas si ninguna lo tiene).
+  function lcSelected() {
+    const all = lcStrips(), valid = new Set(all.map((s) => s.k));
+    const saved = store.get('lcSel2', null);
+    if (Array.isArray(saved)) return new Set(saved.filter((k) => valid.has(k)));
+    const ins = all.filter((s) => s.gid === 'ch'), named = ins.filter((s) => s.named);
+    return new Set((named.length ? named : ins).map((s) => s.k));
   }
   function renderLcSetup() {
-    const chans = lcState.chans || [];
-    const key = chans.map((c) => c.label).join('|');
-    if (key !== lcChansKey) { // solo se reconstruye si cambian los canales: no se pierde el desplazamiento de la lista
+    const groups = lcState.groups || [];
+    const key = groups.map((g) => g.id + ':' + g.strips.map((s) => s.label).join('|')).join('#');
+    if (key !== lcChansKey) { // solo se reconstruye si cambian las tiras: no se pierde el desplazamiento de la lista
       lcChansKey = key;
-      const sel = lcSelected(chans);
-      $('lcChans').innerHTML = chans.map((c) => `<label><input type="checkbox" value="${c.i}"${sel.has(c.i) ? ' checked' : ''}><span>${esc(c.label)}</span></label>`).join('');
+      const sel = lcSelected();
+      $('lcChans').innerHTML = groups.map((g) => `<div class="lc-grp">${esc(g.name)}</div>` + g.strips.map((c) =>
+        `<label><input type="checkbox" value="${esc(c.k)}"${sel.has(c.k) ? ' checked' : ''}><span>${esc(c.label)}</span></label>`).join('')).join('');
       $('lcChans').querySelectorAll('input').forEach((x) => x.onchange = lcSaveSel);
     }
     document.querySelectorAll('input[name=lcMode]').forEach((x) => { x.checked = x.value === lcMode(); });
     const auto = lcState.autoPairs || [];
     $('lcPairsHint').textContent = auto.length ? `${t('lc.pairsHint')} ${t('lc.pairsAuto', { list: lcPairsText(auto) })}` : t('lc.pairsHint');
     if (document.activeElement !== $('lcPairs')) $('lcPairs').value = store.get('lcPairs', null) ?? lcPairsText(auto);
+    if (document.activeElement !== $('lcOrder')) $('lcOrder').value = store.get('lcOrder', '');
+    // Umbrales: compartidos, se cambian solo con control (en escenario no se muestran)
+    const P = lcState.prefs || {}, L = lcState.limits || {}, ctl = typeof canControl !== 'undefined' && canControl;
+    $('lcThrBox').hidden = ROLE !== 'sala';
+    [['Signal', 'signal'], ['Also', 'also'], ['Stereo', 'stereo'], ['Cross', 'cross']].forEach(([id, k]) => {
+      const el = $('lcThr' + id);
+      if (L[k]) { el.min = L[k][0]; el.max = L[k][1]; }
+      if (document.activeElement !== el && P[k] != null) el.value = P[k];
+      el.disabled = !ctl;
+    });
+    $('lcThrHint').textContent = t(ctl ? 'lc.thrHint' : 'lc.thrLocked');
   }
-  function lcSaveSel() { store.set('lcSel', [...$('lcChans').querySelectorAll('input:checked')].map((x) => Number(x.value))); }
-  function lcPick(fn) { $('lcChans').querySelectorAll('input').forEach((x, k) => { x.checked = fn((lcState.chans || [])[k] || {}); }); lcSaveSel(); }
+  function lcSaveSel() { store.set('lcSel2', [...$('lcChans').querySelectorAll('input:checked')].map((x) => x.value)); }
+  function lcPick(fn) { const st = new Map(lcStrips().map((s) => [s.k, s])); $('lcChans').querySelectorAll('input').forEach((x) => { x.checked = fn(st.get(x.value) || {}); }); lcSaveSel(); }
   document.querySelectorAll('input[name=lcMode]').forEach((x) => x.onchange = () => { store.set('lcMode', x.value); renderLc(); });
-  $('lcPickNamed').onclick = () => lcPick((c) => c.named);
-  $('lcPickAll').onclick = () => lcPick(() => true);
+  $('lcPickNamed').onclick = () => lcPick((c) => c.gid === 'ch' && c.named);
+  $('lcPickAll').onclick = () => lcPick((c) => c.gid === 'ch');
   $('lcPickNone').onclick = () => lcPick(() => false);
   $('lcPairs').onchange = () => store.set('lcPairs', $('lcPairs').value);
+  $('lcOrder').onchange = () => store.set('lcOrder', $('lcOrder').value);
+  ['Signal', 'Also', 'Stereo', 'Cross'].forEach((id) => { $('lcThr' + id).onchange = () => {
+    sendShared({ type: 'lc-prefs', prefs: { signal: $('lcThrSignal').value, also: $('lcThrAlso').value, stereo: $('lcThrStereo').value, cross: $('lcThrCross').value } });
+  }; });
 
-  // Texto de estado de un paso del line check guiado
-  function lcStepText(s, peak) {
-    if (s.state === 'ok') return [`✓ ${fmtNum(peak)} dB`, s.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', s.also.length ? `⚠ ${t('lc.also', { list: s.also.join(', ') })}` : ''].filter(Boolean).join(' · ');
-    const warn = s.cross ? `⚠ ${t('lc.cross', { ch: s.cross })}` : s.missing ? `⚠ ${t('lc.sideMissing', { ch: s.missing })}` : '';
-    return [s.state === 'skip' ? t('lc.skipped') : '', warn].filter(Boolean).join(' · '); // un paso saltado conserva su aviso
+  // Texto de estado de un paso o tira del line check
+  function lcStepText(r) {
+    if (r.state === 'ok') return [`✓ ${fmtNum(r.peak)} dB`, r.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', r.also.length ? `⚠ ${t('lc.also', { list: r.also.join(', ') })}` : ''].filter(Boolean).join(' · ');
+    const warn = r.cross ? `⚠ ${t('lc.cross', { ch: r.cross })}` : r.missing ? `⚠ ${t('lc.sideMissing', { ch: r.missing })}` : '';
+    return [r.state === 'skip' ? t('lc.skipped') : '', warn].filter(Boolean).join(' · '); // un paso saltado conserva su aviso
+  }
+  const lcNum = (label) => label.split(' + ').map((l) => l.split(' ')[0]).join('+'); // "13 Teclas L + 14 Teclas R" → "13+14"
+  // Comparación con el line check anterior: qué ha cambiado en las mismas tiras
+  function lcCompare() {
+    const prev = lcState.prev, rows = lcState.rows || [];
+    if (!prev || !rows.length || lcState.active) return '';
+    const before = new Map(prev.rows.map((r) => [r.keys.join('|'), r]));
+    const lost = [], back = [], moved = [];
+    for (const r of rows) {
+      const b = before.get(r.keys.join('|'));
+      if (!b) continue;
+      if (b.state === 'ok' && r.state !== 'ok') lost.push(lcNum(r.label));
+      else if (b.state !== 'ok' && r.state === 'ok') back.push(lcNum(r.label));
+      else if (b.state === 'ok' && r.state === 'ok' && Math.abs(r.peak - b.peak) > 6) moved.push(`${lcNum(r.label)} (${fmtNum(r.peak - b.peak)} dB)`);
+    }
+    const when = new Date(prev.t).toLocaleString(LANG, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const parts = [lost.length && `<b>${esc(t('lc.cmpLost'))}</b> ${esc(lost.join(', '))}`, back.length && `<b>${esc(t('lc.cmpBack'))}</b> ${esc(back.join(', '))}`,
+      moved.length && `<b>${esc(t('lc.cmpMoved'))}</b> ${esc(moved.join(', '))}`].filter(Boolean);
+    return `${esc(t('lc.cmpWith', { when }))} ${parts.length ? parts.join(' · ') : esc(t('lc.cmpSame'))}`;
   }
   function renderLc() {
     if (!$('lcDlg').open) return;
-    const items = lcState.items || [], steps = lcState.steps || [];
-    const guided = lcState.mode === 'guided' && steps.length;
-    const byCh = new Map(items.map((it) => [it.i, it]));
-    const stepPeak = (s) => Math.max(...s.chs.map((i) => (byCh.get(i) || { peak: -90 }).peak));
+    const rows = lcState.rows || [], levels = lcState.levels || {};
+    const guided = lcState.mode === 'guided';
     $('lcSetup').hidden = !!lcState.active;
     if (!lcState.active) renderLcSetup();
-    $('lcStart').textContent = t(items.length ? 'lc.restart' : 'lc.start');
+    $('lcStart').textContent = t(rows.length ? 'lc.restart' : 'lc.start');
     $('lcStop').hidden = !lcState.active;
-    const done = guided ? steps.filter((s) => s.state === 'ok').length : items.filter((x) => x.ok).length;
-    const total = guided ? steps.length : items.length, noisy = items.filter((x) => x.noise).length;
-    $('lcProg').innerHTML = items.length
-      ? `${esc(t('lc.progress', { ok: done, n: total }))}${noisy ? `<small>${esc(t('lc.noiseCount', { n: noisy }))}</small>` : ''}`
+    $('lcResume').hidden = lcState.active || !rows.some((r) => r.state === 'pending');
+    $('lcResume').textContent = t(lcState.interrupted ? 'lc.resumeInterrupted' : 'lc.resume');
+    const done = rows.filter((r) => r.state === 'ok').length, noisy = rows.filter((r) => r.noise).length;
+    $('lcProg').innerHTML = rows.length
+      ? `${esc(t('lc.progress', { ok: done, n: rows.length }))}${noisy ? `<small>${esc(t('lc.noiseCount', { n: noisy }))}</small>` : ''}`
       : '';
-    $('lcHint').textContent = lcState.active ? t('lc.tapHint') : items.length ? t('lc.finished') : t(lcMode() === 'guided' ? 'lc.hintGuided' : 'lc.idle');
+    $('lcHint').textContent = lcState.active ? t('lc.tapHint') : lcState.interrupted ? t('lc.interrupted') : rows.length ? t('lc.finished') : t(lcMode() === 'guided' ? 'lc.hintGuided' : 'lc.idle');
     // Paso actual (guiado)
-    const cur = guided && lcState.active ? steps[lcState.cur] : null;
+    const cur = guided && lcState.active ? rows[lcState.cur] : null;
     $('lcNow').hidden = !cur;
     if (cur) {
       $('lcCur').textContent = cur.label;
       const live = lcState.live || [];
-      if ($('lcLive').children.length !== cur.chs.length) $('lcLive').innerHTML = cur.chs.map(() => '<span><i></i></span>').join('');
+      if ($('lcLive').children.length !== cur.keys.length) $('lcLive').innerHTML = cur.keys.map(() => '<span><i></i></span>').join('');
       [...$('lcLive').querySelectorAll('i')].forEach((el, k) => { el.style.width = `${Math.round(pos(live[k] ?? -90) * 100)}%`; });
-      const txt = lcStepText(cur, stepPeak(cur));
+      const txt = lcStepText(cur);
       $('lcState').textContent = txt || t('lc.waiting');
       $('lcState').className = `state${cur.state === 'ok' ? ' ok' : txt ? ' warn' : ''}`;
-      const nxt = steps.find((s, k) => k > lcState.cur && s.state === 'pending');
+      const nxt = rows.find((r, k) => k > lcState.cur && r.state === 'pending');
       $('lcNext').textContent = nxt ? t('lc.next', { name: nxt.label }) : t('lc.last');
       $('lcPrev').disabled = lcState.cur <= 0;
       // vibración corta al dar un paso por bueno (Android)
       if (lcState.cur === lcLastCur && cur.state === 'ok' && !lcLastOk) { try { navigator.vibrate && navigator.vibrate(80); } catch {} }
       lcLastCur = lcState.cur; lcLastOk = cur.state === 'ok';
     }
-    // Lista: en guiado, un renglón por paso; en libre, uno por canal
-    const rows = guided
-      ? steps.map((s, k) => ({ label: s.label, level: (byCh.get(s.chs[0]) || {}).level ?? -90, ok: s.state === 'ok', cur: lcState.active && k === lcState.cur,
-          noise: s.chs.some((i) => (byCh.get(i) || {}).noise), warn: !!(s.cross || s.missing || s.unbalanced || s.also.length),
-          st: [lcStepText(s, stepPeak(s)), s.chs.some((i) => (byCh.get(i) || {}).noise) ? `⚠ ${t('lc.noise')}` : ''].filter(Boolean).join(' · ') || (lcState.active && k === lcState.cur ? t('lc.now') : t('lc.pending')) }))
-      : items.map((it) => ({ label: it.label, level: it.level, ok: it.ok, cur: false, noise: it.noise, warn: false,
-          st: [it.ok ? `✓ ${fmtNum(it.peak)} dB` : '', it.noise ? `⚠ ${t('lc.noise')}` : '', !it.ok && !it.noise ? t('lc.pending') : ''].filter(Boolean).join(' · ') }));
+    // Lista: un renglón por paso (guiado) o por tira (libre). En guiado, "Ir" lleva a ese paso.
     const ul = $('lcList');
     if (lcRows.length !== rows.length) {
       ul.innerHTML = '';
-      lcRows = rows.map(() => {
+      lcRows = rows.map((_, k) => {
         const li = document.createElement('li');
-        li.innerHTML = '<span class="nm"></span><span class="lvl"><i></i></span><span class="st"></span>';
+        li.innerHTML = '<span class="nm"></span><span class="lvl"><i></i></span><span class="st"></span><button class="go"></button>';
         li.onclick = () => { $('lcDlg').close(); openMsgs(li.dataset.label); };
+        const go = li.querySelector('.go');
+        go.textContent = t('lc.goto');
+        go.onclick = (e) => { e.stopPropagation(); sendShared({ type: 'lc-goto', step: k }); };
         ul.appendChild(li);
-        return { li, nm: li.querySelector('.nm'), bar: li.querySelector('.lvl i'), st: li.querySelector('.st') };
+        return { li, go, nm: li.querySelector('.nm'), bar: li.querySelector('.lvl i'), st: li.querySelector('.st') };
       });
     }
     const onlyPending = $('lcPending').checked;
     rows.forEach((row, k) => {
-      const r = lcRows[k];
+      const r = lcRows[k], isCur = lcState.active && guided && k === lcState.cur;
+      const warn = !!(row.cross || row.missing || row.unbalanced || row.also.length);
       r.li.dataset.label = row.label.split(' + ')[0];
       r.nm.textContent = row.label;
-      r.bar.style.width = `${Math.round(pos(lcState.active ? row.level : -90) * 100)}%`;
-      r.li.classList.toggle('ok', row.ok);
+      r.bar.style.width = `${Math.round(pos(lcState.active ? levels[row.keys[0]] ?? -90 : -90) * 100)}%`;
+      r.li.classList.toggle('ok', row.state === 'ok');
       r.li.classList.toggle('noise', row.noise);
-      r.li.classList.toggle('warn', row.warn);
-      r.li.classList.toggle('cur', row.cur);
-      r.st.textContent = row.st;
-      r.li.hidden = onlyPending && row.ok && !row.noise && !row.warn;
+      r.li.classList.toggle('warn', warn);
+      r.li.classList.toggle('cur', isCur);
+      r.st.textContent = [lcStepText(row), row.noise ? `⚠ ${t('lc.noise')}` : ''].filter(Boolean).join(' · ') || (isCur ? t('lc.now') : t('lc.pending'));
+      r.go.hidden = !(lcState.active && guided) || isCur;
+      r.li.hidden = onlyPending && row.state === 'ok' && !row.noise && !warn;
     });
-    const num = (label) => label.split(' + ').map((l) => l.split(' ')[0]).join('+'); // "13 Teclas L + 14 Teclas R" → "13+14"
-    const missing = (guided ? steps.filter((s) => s.state !== 'ok').map((s) => s.label) : items.filter((x) => !x.ok).map((x) => x.label)).map(num);
-    $('lcSum').textContent = items.length && !lcState.active ? t('lc.missing', { list: missing.length ? missing.join(', ') : t('lc.none') }) : '';
+    const missing = rows.filter((r) => r.state !== 'ok').map((r) => lcNum(r.label));
+    $('lcSum').textContent = rows.length && !lcState.active ? t('lc.missing', { list: missing.length ? missing.join(', ') : t('lc.none') }) : '';
+    $('lcCmp').innerHTML = lcCompare();
+    // Informe: lo sirve la app de sala (desde escenario, por su dirección)
+    $('lcCsv').hidden = !rows.length && !lcState.prev;
+    $('lcCsv').href = ROLE === 'sala' ? 'linecheck.csv' : `http://${store.get('salaHost', '') || `${location.hostname}:3000`}/linecheck.csv`;
   }
   $('openLc').onclick = () => {
     if (ROLE === 'escenario' && !linkOk) return toast(t('msgs.linkOff'));
@@ -2027,18 +2118,28 @@
     lcRows = []; lcChansKey = ''; renderLc();
   };
   $('lcStart').onclick = () => {
-    const chs = [...$('lcChans').querySelectorAll('input:checked')].map((x) => Number(x.value));
-    if (!$('lcSetup').hidden && !chs.length) return toast(t('lc.nothingSelected'));
-    store.set('lcPairs', $('lcPairs').value);
+    let keys, pairs;
+    if ($('lcSetup').hidden) ({ keys, pairs } = lcState.cfg || {}); // durante un line check: empezar de nuevo con lo mismo
+    else {
+      const sel = [...$('lcChans').querySelectorAll('input:checked')].map((x) => x.value);
+      if (!sel.length) return toast(t('lc.nothingSelected'));
+      const chosen = new Set(sel), first = lcParseOrder($('lcOrder').value).filter((k) => chosen.has(k));
+      keys = [...new Set([...first, ...sel])]; // primero las del orden escrito; el resto, en su orden
+      pairs = lcParsePairs($('lcPairs').value);
+      store.set('lcPairs', $('lcPairs').value); store.set('lcOrder', $('lcOrder').value);
+    }
     lcRows = [];
-    sendShared({ type: 'lc-start', mode: lcMode(), chs: $('lcSetup').hidden ? (lcState.cfg || {}).chs : chs, pairs: $('lcSetup').hidden ? (lcState.cfg || {}).pairs : lcParsePairs($('lcPairs').value) });
+    sendShared({ type: 'lc-start', mode: lcMode(), keys, pairs });
   };
   $('lcStop').onclick = () => { sendShared({ type: 'lc-stop' }); };
+  $('lcResume').onclick = () => { sendShared({ type: 'lc-resume' }); };
   $('lcPrev').onclick = () => { sendShared({ type: 'lc-prev' }); };
   $('lcRepeat').onclick = () => { sendShared({ type: 'lc-repeat' }); };
   $('lcSkip').onclick = () => { sendShared({ type: 'lc-next' }); };
   $('lcPending').onchange = () => { store.set('lcPending', $('lcPending').checked); renderLc(); };
   $('closeLc').onclick = () => $('lcDlg').close();
+
+  // compartido:js-mensajes-linecheck (fin)
 
   // --- Ajustes: nombre y dirección de la app de sala
   $('optName').value = myName();

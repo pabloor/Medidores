@@ -38,7 +38,8 @@ The file names of the launchers and tools are in Spanish: **Abrir Medidores** me
     node server.js                                   # opens the connection screen
     node server.js --driver yamaha --ip 192.168.1.20 # connects directly
     node server.js --driver sim                      # simulator
-    SIM_LINECHECK=1 node server.js --driver sim      # line check simulator: one channel every 2.5 s, with a crossed patch, a pair missing a side and an open mic
+    SIM_LINECHECK=1 node server.js --driver sim      # line check simulator: one channel and one bus every 2.5 s, with crosses, a pair missing a side and an open mic
+    node tools/sincronizar-escenario.js              # after changing messages or line check: copies those changes to the stage version
     node server.js --port 8080                       # different port
 
 ## Show log and full-screen view
@@ -54,11 +55,17 @@ The file names of the launchers and tools are in Spanish: **Abrir Medidores** me
 These two features are shared with the stage version (read-only). This app acts as the hub: stage phones link to it through port 3000 on the same computer. The link only carries messages and line check: it gives no access to this app's meters nor to any console control.
 
 - **Messages:** the speech-bubble button at the top opens messages. There are quick messages ("Ready", "Change the battery", "Check the cable", "No signal"…), which each phone shows in its own language, and free text, and a channel can be attached. Incoming messages are shown in large type, below the top bar, until you press **Seen**; the sender sees who has read them. On Android the phone vibrates; on iPhone, Safari does not allow it. In Settings you can enter your name.
-- **Line check:** in Settings → Line check. Before starting, choose the channels (the named ones, all, or the ones you tick) and the stereo pairs. Pairs linked on the console (Yamaha, X32) are suggested automatically; on DiGiCo, type them in, for example `7-8, 13-14`. There are two modes:
-  - **Guided** (default): channels go one at a time. FOH and stage see the current one in large type ("Now: 5 Kick · Next: 6 Snare") with its meter. When it gets a clear signal (above −40 dB for a moment), it is ticked with its peak and the next one starts. You are warned if the signal arrives on another channel (possible crossed patch), if another channel sounds at the same time within 20 dB (crosstalk or an open mic), if a stereo pair only gets one side, and if the two sides differ by more than 6 dB. Channels that were already sounding when a step started (ambience, playback) do not count as a cross. Any phone can go back, repeat or skip.
-  - **Free:** each channel is ticked automatically when it gets a clear signal, in any order.
+- **Line check:** in Settings → Line check. Before starting, choose:
+  - **The strips:** the named inputs, all inputs or the ones you tick. Buses, matrices and main outputs can be added too, for example to check sends to monitors.
+  - **The stereo pairs,** with each strip's number: `7-8, 13-14` for inputs or `A1-A2` for buses. Pairs linked on the console (Yamaha, X32) are suggested automatically; on DiGiCo, type them in.
+  - **The guided order,** if not by number: for example `1-8, 17-24, A1-A4`. The other chosen strips follow.
+  - **The thresholds** (under "Thresholds"): from how many dB there is signal (−40), within how many dB another strip sounding is flagged (20), the maximum difference between the sides of a pair (6 dB) and after how many seconds a cross is flagged (1.5). They apply to every phone and can only be changed with control.
 
-  In both modes, channels with a low level (between −80 and −45 dB) that stays almost constant for 5 seconds are flagged as possible noise or hum. Every phone, FOH and stage, sees the same line check live. When finished, it shows which channels gave no signal. Tapping a channel opens a message about it.
+  There are two modes:
+  - **Guided** (default): strips go one at a time. FOH and stage see the current one in large type ("Now: 5 Kick · Next: 6 Snare") with its meter. When it gets a clear signal, it is ticked with its peak and the next one starts. You are warned if the signal arrives on another strip of the same group (possible crossed patch or sends), if another input sounds at the same time (crosstalk or an open mic), if a stereo pair only gets one side, and if the two sides arrive at different levels. Strips that were already sounding when a step started (ambience, playback) do not count as a cross. Any phone can go back, repeat, skip or jump to any step with **Go**.
+  - **Free:** each strip is ticked automatically when it gets a clear signal, in any order.
+
+  In both modes, strips with a low level (between −80 and −45 dB) that stays almost constant for 5 seconds are flagged as possible noise or hum. Every phone, FOH and stage, sees the same line check live. When finished, it shows what gave no signal and what changed since the previous line check (strips that had signal and no longer do, the other way round, or with a peak more than 6 dB different). **Download report** gets a CSV with every step, its peak and its warnings. The line check is saved on the Mac: if the app closes halfway, reopening it with the same console lets you continue where it stopped. The last 10 are kept for comparison. Tapping a strip opens a message about it.
 
 ## Language
 

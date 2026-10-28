@@ -338,6 +338,13 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
     return res.end(APP_VERSION);
   }
+  if (p === '/linecheck.csv') {
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*', // también se descarga desde la app de escenario
+      'Content-Disposition': `attachment; filename="linecheck-${fmtDate(Date.now())}.csv"`,
+    });
+    return res.end('\ufeff' + csv(lcCsv()));
+  }
   if (p === '/registro.csv' || p === '/historial.csv') {
     const rows = p === '/registro.csv'
       ? [['fecha', 'hora', 'canal', 'pico_dB'], ...clipLog.map((e) => [fmtDate(e.t), fmtTime(e.t), e.label, e.peak])]
@@ -456,68 +463,95 @@ function handleShared(ws, msg) {
     linkBroadcast({ type: 'msg-ack', id: m.id, acks: m.acks });
     return true;
   }
-  if (/^lc-(start|stop|next|prev|repeat|goto)$/.test(msg.type)) { lcCommand(msg); return true; }
+  if (/^lc-(start|stop|resume|next|prev|repeat|goto)$/.test(msg.type)) { lcCommand(msg); return true; }
   return false;
 }
 
 // ---------- Line check. Dos modos:
-//   libre:  cada canal elegido se marca al recibir señal clara, en cualquier orden.
-//   guiado: los canales (o pares estéreo) van de uno en uno; al recibir señal el que toca, se marca y se pasa al siguiente.
-//           Avisa si la señal entra por otro canal (posible cruce), si suena otro a la vez y si a un par estéreo le falta un lado.
-// En los dos se detecta posible ruido constante.
-const LC_SIGNAL = -40;       // dB: por encima, el canal tiene señal
-const LC_HITS = 3;           // lecturas seguidas por encima de LC_SIGNAL: no cuenta un chasquido suelto
+//   libre:  cada tira elegida se marca al recibir señal clara, en cualquier orden.
+//   guiado: las tiras (o pares estéreo) van de una en una, en el orden elegido; al recibir señal la que toca, se marca y
+//           se pasa a la siguiente. Avisa si la señal entra por otra tira del mismo grupo (posible cruce), si en las
+//           entradas suena otra a la vez y si a un par estéreo le falta un lado.
+// Las tiras pueden ser entradas, buses, matrices o salidas principales: cada una se identifica como "grupo:índice" (p. ej. "bus:2").
+// En los dos modos se detecta posible ruido constante. El estado se guarda en linecheck.json (sobrevive a un reinicio),
+// junto con los últimos line checks terminados, para comparar con el anterior y descargar el informe (/linecheck.csv).
+const LC_HITS = 3;           // lecturas seguidas por encima del umbral: no cuenta un chasquido suelto
 const LC_NOISE_MAX = -45;    // ruido: nivel bajo…
 const LC_NOISE_MIN = -80;
 const LC_NOISE_RANGE = 3;    // …y casi constante (variación menor de 3 dB)…
 const LC_NOISE_SECONDS = 5;  // …durante 5 segundos
-const LC_CROSS_MS = 1500;    // guiado: otro canal con señal este tiempo y el que toca sin ella → posible cruce
-const LC_ALSO_DB = 20;       // guiado: otro canal a menos de 20 dB del que toca → "también suena"
-const LC_STEREO_DB = 6;      // par estéreo: diferencia máxima de pico entre los dos lados (la DiGiCo mide en escalones de 3 dB)
 const LC_ADVANCE_MS = 1200;  // guiado: tiempo con el ✓ a la vista antes de pasar al siguiente
-const lc = { active: false, startedAt: 0, mode: 'guided', items: [], byCh: new Map(), steps: [], cur: -1, hot: new Map(), busy: new Set(), cfg: { chs: null, pairs: [] } };
-let lcLast = null; // últimos niveles de las entradas (para saber qué canales ya sonaban al empezar un paso)
+const LC_HISTORY = 10;       // line checks terminados que se guardan
+// Umbrales ajustables (Ajustes del line check; los guarda prefs.json):
+//   signal: dB por encima de los que hay señal · also: "también suena" a menos de estos dB del que toca
+//   stereo: diferencia máxima de pico entre los lados de un par (la DiGiCo mide en escalones de 3 dB) · cross: segundos antes de avisar de un cruce
+const LC_DEFAULTS = { signal: -40, also: 20, stereo: 6, cross: 1.5 };
+const LC_LIMITS = { signal: [-70, -10], also: [6, 40], stereo: [1, 20], cross: [0.5, 5] };
+const lcPrefs = () => ({ ...LC_DEFAULTS, ...(prefs.lc || {}) });
+function setLcPrefs(v) {
+  const out = lcPrefs();
+  for (const [k, [mn, mx]] of Object.entries(LC_LIMITS)) { const n = Number(v && v[k]); if (Number.isFinite(n)) out[k] = Math.min(mx, Math.max(mn, Math.round(n * 10) / 10)); }
+  prefs.lc = out; savePrefs();
+}
+const LC_FILE = path.join(DATA_DIR, 'linecheck.json');
+const lc = { active: false, startedAt: 0, mode: 'guided', items: [], byKey: new Map(), steps: [], cur: -1, hot: new Map(), busy: new Set(), cfg: { keys: [], pairs: [] }, interrupted: false, labels: {} };
+let lcLast = null;   // últimos niveles de todos los grupos (para saber qué tiras ya sonaban al empezar un paso)
+let lcHistory = [];  // line checks terminados, el más reciente al final
+let lcSaved = null;  // line check guardado al cerrar la app: se recupera al volver a conectar con la misma mesa
+try { const f = JSON.parse(fs.readFileSync(LC_FILE, 'utf8')); lcHistory = Array.isArray(f.history) ? f.history.slice(-LC_HISTORY) : []; lcSaved = f.current || null; } catch {}
 
-const lcChGroup = () => (state.layout ? state.layout.groups.findIndex((g) => g.id === 'ch') : -1);
-const lcCount = () => { const gi = lcChGroup(); return gi >= 0 ? state.layout.groups[gi].strips.length : 0; };
-const lcLabel = (i) => { const gi = lcChGroup(); return gi >= 0 ? stripLabel(gi, i) : String(i + 1); };
-// Pares estéreo que dice la mesa (Yamaha, X32): [[a, b]] con a < b.
+const lcMixerId = () => (state.config ? `${state.config.driver}|${state.config.ip || ''}` : '');
+const lcGroups = () => (state.layout ? state.layout.groups.map((g, gi) => ({ g, gi })).filter(({ g }) => g.id !== 'vca') : []);
+const lcGi = (gid) => (state.layout ? state.layout.groups.findIndex((g) => g.id === gid) : -1);
+const lcSplit = (k) => { const c = String(k).lastIndexOf(':'); return [String(k).slice(0, c), Number(String(k).slice(c + 1))]; };
+const lcValid = (k) => { const [gid, i] = lcSplit(k); const gi = lcGi(gid); return gi >= 0 && Number.isInteger(i) && i >= 0 && i < state.layout.groups[gi].strips.length; };
+const lcLabel = (k) => { if (lc.labels[k]) return lc.labels[k]; const [gid, i] = lcSplit(k); const gi = lcGi(gid); return gi >= 0 ? stripLabel(gi, i) : k; };
+const lcLevel = (k) => { const [gid, i] = lcSplit(k); const gi = lcGi(gid); const a = gi >= 0 && lcLast && lcLast[gi]; return a ? a[i] ?? -90 : -90; };
+// Pares estéreo que dice la mesa (Yamaha, X32), en entradas y buses: [["ch:6", "ch:7"], …]
 function lcAutoPairs() {
-  const ch = state.control && state.control.ch;
-  if (!Array.isArray(ch)) return [];
   const out = [];
-  ch.forEach((c, i) => { if (c && Number.isInteger(c.pair) && c.pair > i && c.pair < ch.length) out.push([i, c.pair]); });
+  for (const gid of ['ch', 'bus', 'mtx']) {
+    const arr = state.control && state.control[gid];
+    if (!Array.isArray(arr) || lcGi(gid) < 0) continue;
+    arr.forEach((c, i) => { if (c && Number.isInteger(c.pair) && c.pair > i && c.pair < arr.length) out.push([`${gid}:${i}`, `${gid}:${c.pair}`]); });
+  }
   return out;
 }
-// Pares pedidos por la app, ya comprobados: los dos canales elegidos y ninguno repetido.
-function lcCleanPairs(pairs, chs) {
-  const sel = new Set(chs), used = new Set(), out = [];
-  for (const pr of Array.isArray(pairs) ? pairs.slice(0, 144) : []) {
+// Pares pedidos por la app, ya comprobados: del mismo grupo, las dos tiras elegidas y ninguna repetida.
+function lcCleanPairs(pairs, keys) {
+  const sel = new Set(keys), used = new Set(), out = [];
+  for (const pr of Array.isArray(pairs) ? pairs.slice(0, 200) : []) {
     if (!Array.isArray(pr) || pr.length !== 2) continue;
-    const [a, b] = pr.map(Number).sort((x, y) => x - y);
-    if (!Number.isInteger(a) || !Number.isInteger(b) || a === b || !sel.has(a) || !sel.has(b) || used.has(a) || used.has(b)) continue;
-    used.add(a); used.add(b); out.push([a, b]);
+    const [a, b] = pr.map(String);
+    if (a === b || !sel.has(a) || !sel.has(b) || used.has(a) || used.has(b) || lcSplit(a)[0] !== lcSplit(b)[0]) continue;
+    used.add(a); used.add(b); out.push(lcSplit(a)[1] < lcSplit(b)[1] ? [a, b] : [b, a]);
   }
   return out;
 }
 
+const lcNewStep = (keys) => ({ keys, state: 'pending', doneAt: 0, cross: null, also: new Set(), missing: null, unbalanced: false });
 function lcStart(opts = {}) {
-  const n = lcCount();
-  const all = [...Array(n).keys()];
-  let chs = Array.isArray(opts.chs) ? [...new Set(opts.chs.map(Number))].filter((i) => Number.isInteger(i) && i >= 0 && i < n).sort((a, b) => a - b) : all;
-  if (!chs.length) chs = all;
-  const pairs = lcCleanPairs(opts.pairs, chs);
+  if (!state.layout) return;
+  // Tiras elegidas, en el orden en que llegan (es el orden del guiado). Sin elección: todas las entradas.
+  let keys = Array.isArray(opts.keys) ? [...new Set(opts.keys.map(String))].filter(lcValid).slice(0, 400) : [];
+  if (!keys.length) { const gi = lcGi('ch'); keys = gi >= 0 ? state.layout.groups[gi].strips.map((_, i) => `ch:${i}`) : []; }
+  if (!keys.length) return;
+  const pairs = lcCleanPairs(opts.pairs, keys);
+  lcArchive(); // el line check anterior, si tenía algo, pasa al historial
   lc.mode = opts.mode === 'free' ? 'free' : 'guided';
-  lc.cfg = { chs, pairs };
-  lc.active = true; lc.startedAt = Date.now();
-  lc.items = chs.map((i) => ({ i, ok: false, peak: -90, noise: false, level: -90, above: 0, win: [] }));
-  lc.byCh = new Map(lc.items.map((it) => [it.i, it]));
+  lc.cfg = { keys, pairs };
+  lc.active = true; lc.interrupted = false; lc.startedAt = Date.now(); lc.labels = {};
+  lc.items = keys.map((k) => ({ k, ok: false, peak: -90, noise: false, level: -90, above: 0, win: [] }));
+  lc.byKey = new Map(lc.items.map((it) => [it.k, it]));
   const partner = new Map(pairs.flatMap(([a, b]) => [[a, b], [b, a]]));
+  const done = new Set();
   lc.steps = [];
-  for (const i of chs) {
-    const j = partner.get(i);
-    if (j != null && j < i) continue; // el lado derecho va en el paso del izquierdo
-    lc.steps.push({ chs: j != null ? [i, j] : [i], state: 'pending', doneAt: 0, cross: null, also: new Set(), missing: null, unbalanced: false });
+  for (const k of keys) { // un par va en la posición de la primera de sus dos tiras
+    if (done.has(k)) continue;
+    const j = partner.get(k);
+    const sk = j != null ? (lcSplit(k)[1] < lcSplit(j)[1] ? [k, j] : [j, k]) : [k];
+    sk.forEach((x) => done.add(x));
+    lc.steps.push(lcNewStep(sk));
   }
   lcGoto(lc.mode === 'guided' ? 0 : -1);
 }
@@ -527,15 +561,16 @@ function lcGoto(k) {
   lc.cur = lc.mode === 'guided' && k >= 0 && k < lc.steps.length ? k : -1;
   const st = lc.steps[lc.cur];
   if (st) {
-    Object.assign(st, { state: 'pending', doneAt: 0, cross: null, also: new Set(), missing: null, unbalanced: false });
-    for (const i of st.chs) { const it = lc.byCh.get(i); if (it) Object.assign(it, { ok: false, peak: -90, above: 0 }); }
+    Object.assign(st, lcNewStep(st.keys));
+    for (const x of st.keys) { const it = lc.byKey.get(x); if (it) Object.assign(it, { ok: false, peak: -90, above: 0 }); }
   }
-  // Los canales que ya suenan al empezar el paso (ambiente, reproducción…) no cuentan como cruce hasta que se callen.
+  // Las tiras que ya suenan al empezar el paso (ambiente, reproducción…) no cuentan como cruce hasta que se callen.
   lc.hot = new Map();
   lc.busy = new Set();
-  if (st && lcLast) lcLast.forEach((db, i) => { if (db >= LC_SIGNAL && !st.chs.includes(i)) lc.busy.add(i); });
-  if (lc.mode === 'guided' && lc.active && lc.cur < 0) lc.active = false; // no quedan pasos: terminado
-  lcSend();
+  const thr = lcPrefs().signal;
+  if (st && lcLast) lcGroups().forEach(({ g, gi }) => (lcLast[gi] || []).forEach((db, i) => { const x = `${g.id}:${i}`; if (db >= thr && !st.keys.includes(x)) lc.busy.add(x); }));
+  if (lc.mode === 'guided' && lc.active && lc.cur < 0) lcFinish(); // no quedan pasos: terminado
+  lcSend(); lcSave(true);
 }
 // Siguiente paso pendiente después de k (y si no hay, el primero pendiente desde el principio); −1 si no queda ninguno.
 function lcNextPending(k) {
@@ -543,9 +578,16 @@ function lcNextPending(k) {
   for (let j = 0; j <= k && j < lc.steps.length; j++) if (lc.steps[j].state === 'pending') return j;
   return -1;
 }
+function lcFinish() { lc.active = false; lc.cur = -1; lc.finishedAt = Date.now(); }
 function lcCommand(msg) {
   if (msg.type === 'lc-start') { lcStart(msg); return; }
-  if (msg.type === 'lc-stop') { lc.active = false; lc.cur = -1; lcSend(); return; }
+  if (msg.type === 'lc-stop') { if (lc.active) lcFinish(); lcSend(); lcSave(true); return; }
+  if (msg.type === 'lc-resume') { // seguir un line check interrumpido (la app se cerró) o terminado antes de tiempo
+    if (lc.active || !lc.steps.length) return;
+    lc.active = true; lc.interrupted = false; lc.finishedAt = 0;
+    if (lc.mode === 'guided') lcGoto(lcNextPending(-1)); else { lcSend(); lcSave(true); }
+    return;
+  }
   if (!lc.active || lc.mode !== 'guided') return;
   const st = lc.steps[lc.cur];
   if (msg.type === 'lc-next') { if (st && st.state === 'pending') st.state = 'skip'; lcGoto(lcNextPending(lc.cur)); }
@@ -555,79 +597,145 @@ function lcCommand(msg) {
 }
 
 function lcLevels(levels) {
-  const gi = lcChGroup();
-  const arr = gi >= 0 && levels[gi];
-  if (!arr) return;
-  lcLast = arr;
-  if (!lc.active) return;
-  const now = Date.now(), guided = lc.mode === 'guided';
-  arr.forEach((db, i) => {
-    if (guided) { // señal de cada canal en el paso actual, elegido o no
-      const h = lc.hot.get(i) || { above: 0, since: 0, peak: -90 };
-      if (db >= LC_SIGNAL) { h.above++; if (h.above === LC_HITS) h.since = now; if (db > h.peak) h.peak = db; }
-      else { h.above = 0; lc.busy.delete(i); }
-      lc.hot.set(i, h);
-    }
-    const it = lc.byCh.get(i);
-    if (!it) return;
-    it.level = db;
-    if (db > it.peak) it.peak = db;
-    it.above = db >= LC_SIGNAL ? it.above + 1 : 0;
-    if (!guided && it.above >= LC_HITS) it.ok = true; // en guiado se marca solo el canal que toca (ver lcGuided)
-    it.win.push([now, db]);
-    while (it.win.length && now - it.win[0][0] > LC_NOISE_SECONDS * 1000) it.win.shift();
-    if (!it.noise && it.win.length > 20 && now - it.win[0][0] >= (LC_NOISE_SECONDS - 0.5) * 1000) {
-      let mn = 0, mx = -200;
-      for (const [, v] of it.win) { if (v < mn) mn = v; if (v > mx) mx = v; }
-      if (mx <= LC_NOISE_MAX && mn >= LC_NOISE_MIN && mx - mn < LC_NOISE_RANGE) it.noise = true;
-    }
-  });
+  lcLast = levels;
+  if (!lc.active || !state.layout) return;
+  const now = Date.now(), guided = lc.mode === 'guided', thr = lcPrefs().signal;
+  for (const { g, gi } of lcGroups()) {
+    (levels[gi] || []).forEach((db, i) => {
+      const k = `${g.id}:${i}`;
+      if (guided) { // señal de cada tira en el paso actual, elegida o no
+        const h = lc.hot.get(k) || { above: 0, since: 0, peak: -90 };
+        if (db >= thr) { h.above++; if (h.above === LC_HITS) h.since = now; if (db > h.peak) h.peak = db; }
+        else { h.above = 0; lc.busy.delete(k); }
+        lc.hot.set(k, h);
+      }
+      const it = lc.byKey.get(k);
+      if (!it) return;
+      it.level = db;
+      if (db > it.peak) it.peak = db;
+      it.above = db >= thr ? it.above + 1 : 0;
+      if (!guided && it.above >= LC_HITS) it.ok = true; // en guiado se marca solo la tira que toca (ver lcGuided)
+      it.win.push([now, db]);
+      while (it.win.length && now - it.win[0][0] > LC_NOISE_SECONDS * 1000) it.win.shift();
+      if (!it.noise && it.win.length > 20 && now - it.win[0][0] >= (LC_NOISE_SECONDS - 0.5) * 1000) {
+        let mn = 0, mx = -200;
+        for (const [, v] of it.win) { if (v < mn) mn = v; if (v > mx) mx = v; }
+        if (mx <= LC_NOISE_MAX && mn >= LC_NOISE_MIN && mx - mn < LC_NOISE_RANGE) it.noise = true;
+      }
+    });
+  }
   if (guided) lcGuided(now);
+  lcSave();
 }
 
 function lcGuided(now) {
   const st = lc.steps[lc.cur];
   if (!st) return;
-  const hot = (i) => { const h = lc.hot.get(i); return h && h.above >= LC_HITS ? h : null; };
-  const others = [...lc.hot].filter(([i, h]) => h.above >= LC_HITS && !st.chs.includes(i) && !lc.busy.has(i));
-  const sides = st.chs.map(hot);
+  const P = lcPrefs(), crossMs = P.cross * 1000;
+  const gid = lcSplit(st.keys[0])[0];
+  const hot = (k) => { const h = lc.hot.get(k); return h && h.above >= LC_HITS ? h : null; };
+  // Solo cuentan las tiras del mismo grupo: una entrada suena también en sus buses, y un bus en el máster.
+  const others = [...lc.hot].filter(([k, h]) => h.above >= LC_HITS && !st.keys.includes(k) && !lc.busy.has(k) && lcSplit(k)[0] === gid);
+  const sides = st.keys.map(hot);
   if (sides.every(Boolean)) {
     const top = Math.max(...sides.map((h) => h.peak));
-    for (const [i, h] of others) if (h.peak >= top - LC_ALSO_DB) st.also.add(i);
+    if (gid === 'ch') for (const [k, h] of others) if (h.peak >= top - P.also) st.also.add(k); // en salidas, que suenen varias es normal
     if (st.state !== 'ok') {
       st.state = 'ok'; st.doneAt = now; st.cross = null; st.missing = null;
-      st.unbalanced = sides.length === 2 && Math.abs(sides[0].peak - sides[1].peak) > LC_STEREO_DB;
-      for (const i of st.chs) { const it = lc.byCh.get(i); if (it) it.ok = true; }
+      st.unbalanced = sides.length === 2 && Math.abs(sides[0].peak - sides[1].peak) > P.stereo;
+      for (const k of st.keys) { const it = lc.byKey.get(k); if (it) it.ok = true; }
     }
   }
   if (st.state === 'ok') { if (now - st.doneAt >= LC_ADVANCE_MS) lcGoto(lcNextPending(lc.cur)); return; }
   // Los avisos se mantienen aunque la señal pare, hasta que el paso se dé por bueno o se repita.
-  const lit = st.chs.filter((i, k) => sides[k]);
-  if (lit.length) st.cross = null; // ya suena el que toca: no era un cruce
-  // Par estéreo con un solo lado: cuál falta
-  if (st.chs.length === 2 && lit.length === 1 && now - hot(lit[0]).since >= LC_CROSS_MS) st.missing = st.chs.find((i) => i !== lit[0]);
-  // El que toca no suena y otro sí: posible cruce
-  if (!lit.length && st.missing == null) { const o = others.find(([, h]) => now - h.since >= LC_CROSS_MS); if (o) st.cross = o[0]; }
+  const lit = st.keys.filter((k, n) => sides[n]);
+  if (lit.length) st.cross = null; // ya suena la que toca: no era un cruce
+  if (st.keys.length === 2 && lit.length === 1 && now - hot(lit[0]).since >= crossMs) st.missing = st.keys.find((k) => k !== lit[0]);
+  if (!lit.length && st.missing == null) { const o = others.find(([, h]) => now - h.since >= crossMs); if (o) st.cross = o[0]; }
+}
+
+// Filas del informe: una por paso (guiado) o por tira (libre)
+function lcRows(src = lc) {
+  const byKey = new Map(src.items.map((it) => [it.k, it]));
+  const r1 = (v) => Math.round(v * 10) / 10;
+  if (src.mode === 'guided' && src.steps.length) return src.steps.map((s) => ({
+    keys: s.keys, label: s.keys.map(lcLabel).join(' + '), state: s.state,
+    peak: r1(Math.max(...s.keys.map((k) => (byKey.get(k) || { peak: -90 }).peak))), peaks: s.keys.map((k) => r1((byKey.get(k) || { peak: -90 }).peak)),
+    cross: s.cross != null ? lcLabel(s.cross) : '', also: [...s.also].map(lcLabel), missing: s.missing != null ? lcLabel(s.missing) : '', unbalanced: s.unbalanced,
+    noise: s.keys.some((k) => (byKey.get(k) || {}).noise),
+  }));
+  return src.items.map((it) => ({ keys: [it.k], label: lcLabel(it.k), state: it.ok ? 'ok' : 'pending', peak: r1(it.peak), peaks: [r1(it.peak)], cross: '', also: [], missing: '', unbalanced: false, noise: it.noise }));
+}
+// Resumen de un line check para el historial y la comparación
+function lcSummary() {
+  return { t: lc.startedAt, end: lc.finishedAt || Date.now(), mixer: (state.layout && state.layout.mixer && state.layout.mixer.name) || '', mode: lc.mode, rows: lcRows() };
+}
+// Guarda en el historial el line check actual si tiene algo hecho y aún no está (al empezar otro o al cambiar de mesa)
+function lcArchive() {
+  if (!lc.steps.length && !lc.items.length) return;
+  if (!lcRows().some((r) => r.state !== 'pending')) return;
+  lcHistory = lcHistory.filter((h) => h.t !== lc.startedAt);
+  lcHistory.push(lcSummary());
+  lcHistory = lcHistory.slice(-LC_HISTORY);
+}
+// Estado actual en el archivo (cada 2 s como mucho mientras se mide; enseguida con now = true)
+let lcSaveTimer = null;
+function lcSave(now = false) {
+  if (now) { clearTimeout(lcSaveTimer); lcSaveTimer = null; return lcWrite(); }
+  if (!lcSaveTimer) lcSaveTimer = setTimeout(() => { lcSaveTimer = null; lcWrite(); }, 2000);
+}
+function lcWrite() {
+  const labels = {}; for (const it of lc.items) labels[it.k] = lcLabel(it.k);
+  const current = lc.items.length ? {
+    mixer: lcMixerId(), mode: lc.mode, cfg: lc.cfg, startedAt: lc.startedAt, finishedAt: lc.finishedAt || 0, active: lc.active, cur: lc.cur, labels,
+    items: lc.items.map((it) => ({ k: it.k, ok: it.ok, peak: it.peak, noise: it.noise })),
+    steps: lc.steps.map((s) => ({ keys: s.keys, state: s.state, cross: s.cross, also: [...s.also], missing: s.missing, unbalanced: s.unbalanced })),
+  } : null;
+  const hist = lc.items.length && !lc.active ? [...lcHistory.filter((h) => h.t !== lc.startedAt), lcSummary()].slice(-LC_HISTORY) : lcHistory;
+  try { fs.writeFileSync(LC_FILE, JSON.stringify({ current, history: hist })); } catch (e) { console.error('No se pudo guardar linecheck.json:', e.message); }
+}
+// Recupera el line check guardado si es de la misma mesa. Si estaba en marcha, queda como interrumpido (se puede seguir).
+function lcRestore() {
+  const f = lcSaved; lcSaved = null;
+  if (!f || f.mixer !== lcMixerId() || !Array.isArray(f.items)) return;
+  Object.assign(lc, { mode: f.mode === 'free' ? 'free' : 'guided', cfg: f.cfg || { keys: [], pairs: [] }, startedAt: f.startedAt || 0, finishedAt: f.finishedAt || 0,
+    active: false, interrupted: !!f.active, cur: -1, labels: f.labels || {} });
+  lc.items = f.items.map((it) => ({ k: it.k, ok: !!it.ok, peak: Number(it.peak) || -90, noise: !!it.noise, level: -90, above: 0, win: [] }));
+  lc.byKey = new Map(lc.items.map((it) => [it.k, it]));
+  lc.steps = (f.steps || []).map((s) => ({ ...lcNewStep(s.keys), state: s.state, cross: s.cross, also: new Set(s.also || []), missing: s.missing, unbalanced: !!s.unbalanced }));
 }
 
 function lcPayload() {
-  const r1 = (v) => Math.round(v * 10) / 10;
-  const n = lcCount();
   const st = lc.steps[lc.cur];
+  // Último line check terminado distinto del actual, para comparar
+  const prev = [...lcHistory].reverse().find((h) => h.t !== lc.startedAt) || null;
   return {
-    type: 'lc', active: lc.active, startedAt: lc.startedAt, mode: lc.mode, cur: lc.cur,
-    chans: Array.from({ length: n }, (_, i) => ({ i, label: lcLabel(i), named: !!(state.layout.groups[lcChGroup()].strips[i] || {}).name })), // n = 0 sin layout
-    cfg: lc.cfg, autoPairs: lcAutoPairs(),
-    items: lc.items.map((it) => ({ i: it.i, label: lcLabel(it.i), ok: it.ok, noise: it.noise, peak: r1(it.peak), level: r1(it.level) })),
-    steps: lc.steps.map((s) => ({
-      chs: s.chs, label: s.chs.map(lcLabel).join(' + '), state: s.state,
-      cross: s.cross != null ? lcLabel(s.cross) : '', also: [...s.also].map(lcLabel), missing: s.missing != null ? lcLabel(s.missing) : '', unbalanced: s.unbalanced,
-    })),
-    live: st && lcLast ? st.chs.map((i) => r1(lcLast[i] ?? -90)) : [],
+    type: 'lc', active: lc.active, interrupted: lc.interrupted, startedAt: lc.startedAt, finishedAt: lc.finishedAt || 0, mode: lc.mode, cur: lc.cur,
+    groups: lcGroups().map(({ g }) => ({ id: g.id, name: g.name, strips: g.strips.map((s, i) => ({ k: `${g.id}:${i}`, num: s.num, label: lcLabel(`${g.id}:${i}`), named: !!s.name })) })),
+    cfg: lc.cfg, autoPairs: lcAutoPairs(), prefs: lcPrefs(), limits: LC_LIMITS,
+    rows: lcRows(),
+    live: st ? st.keys.map((k) => Math.round(lcLevel(k) * 10) / 10) : [],
+    levels: lc.active ? Object.fromEntries(lc.items.map((it) => [it.k, Math.round(it.level * 10) / 10])) : {},
+    prev: prev && { t: prev.t, mixer: prev.mixer, rows: prev.rows.map((r) => ({ keys: r.keys, label: r.label, state: r.state, peak: r.peak })) },
   };
 }
 function lcSend() { if (state.layout) linkBroadcast(lcPayload()); }
 setInterval(() => { if (lc.active) lcSend(); }, 250);
+
+// Informe del line check en CSV: el actual o, si no hay, el último terminado
+function lcCsv() {
+  const src = lc.items.length ? { ...lcSummary(), rows: lcRows() } : lcHistory[lcHistory.length - 1];
+  if (!src) return [['line check'], ['sin datos']];
+  const st = { ok: 'con señal', skip: 'saltado', pending: 'sin señal' };
+  const rows = [['line check', fmtDate(src.t), fmtTime(src.t), src.mixer, src.mode === 'guided' ? 'guiado' : 'libre'], [],
+    ['paso', 'tira', 'estado', 'pico_dB', 'avisos', 'ruido']];
+  src.rows.forEach((r, n) => {
+    const warns = [r.cross && `la señal entra por ${r.cross}`, r.missing && `falta ${r.missing}`, r.unbalanced && 'lados con niveles distintos',
+      r.also && r.also.length && `también suena ${r.also.join(', ')}`].filter(Boolean).join('; ');
+    rows.push([n + 1, r.label, st[r.state] || r.state, r.state === 'ok' ? r.peak : '', warns, r.noise ? 'posible ruido' : '']);
+  });
+  return rows;
+}
 
 function broadcast(obj, filter = () => true) {
   const msg = JSON.stringify(obj);
@@ -643,7 +751,7 @@ const encVal = (v) => (v === -Infinity ? '-inf' : v);
 const enc = (c) => ({ caps: c.caps, ch: c.ch.map(encStrip), main: c.main.map(encStrip), bus: (c.bus || []).map(encStrip), mtx: (c.mtx || []).map(encStrip), vca: (c.vca || []).map(encStrip) });
 const encStrip = (s) => ({ ...s, fader: encVal(s.fader) });
 const meterPointMsg = () => ({ type: 'meter-point', value: prefs.meterPoint, supported: !!(driver && typeof driver.setMeterPoint === 'function') });
-const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'meter-point', 'history-clear', 'clip-log-clear']);
+const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'meter-point', 'history-clear', 'clip-log-clear', 'lc-prefs']);
 // La clave solo se le muestra al propio ordenador (para el QR de control).
 const roleMsg = (ws) => ({ type: 'role', role: ws.canControl ? 'control' : 'viewer', ...(ws.local ? { key: prefs.controlKey } : {}) });
 const infoMsg = () => ({ type: 'config', config: state.config, urls: lanUrls(), ifaces: lanAddresses().map((a) => a.name), version: APP_VERSION });
@@ -652,7 +760,8 @@ function startDriver(cfg) {
   if (driver) { driver.removeAllListeners(); driver.stop(); driver = null; }
   state.layout = state.levels = state.raw = state.control = state.meterFall = state.meterRise = null;
   resetShowLog();
-  lc.active = false; lc.items = []; lc.steps = []; lc.cur = -1; lcLast = null;
+  lcArchive(); if (lc.items.length) lcWrite(); // el line check de la mesa anterior queda en el historial
+  Object.assign(lc, { active: false, interrupted: false, items: [], byKey: new Map(), steps: [], cur: -1, startedAt: 0, finishedAt: 0, labels: {} }); lcLast = null;
   broadcast({ type: 'clip-log', events: [] });
   broadcast({ type: 'history-cleared' });
   broadcast({ type: 'reset' });
@@ -664,7 +773,7 @@ function startDriver(cfg) {
   catch (e) { return setStatus({ state: 'error', detail: e.message, key: 'st.driverError', p: { msg: e.message } }); }
   broadcast(meterPointMsg());
   driver.on('status', setStatus);
-  driver.on('layout', (l) => { state.layout = l; broadcast({ type: 'layout', ...l }); if (ROLE === 'sala') lcSend(); }); // nombres de canal para elegir en el line check
+  driver.on('layout', (l) => { state.layout = l; broadcast({ type: 'layout', ...l }); if (ROLE === 'sala') { if (lcSaved) lcRestore(); lcSend(); } }); // nombres para elegir en el line check; recupera el guardado
   driver.on('levels', (g) => { state.levels = g; dirty = true; if (ROLE === 'sala') { logLevels(g); lcLevels(g); } });
   driver.on('raw', (r) => { state.raw = r; });
   driver.on('meterPoint', (v) => { prefs.meterPoint = v; broadcast(meterPointMsg()); });
@@ -729,6 +838,7 @@ wss.on('connection', (ws, req) => {
       for (const c of wss.clients) if (!c.local) { c.canControl = false; c.send(JSON.stringify(roleMsg(c))); c.close(); }
       return ws.send(JSON.stringify(roleMsg(ws)));
     }
+    if (msg.type === 'lc-prefs') { setLcPrefs(msg.prefs); return lcSend(); } // umbrales del line check (ajuste compartido: solo con control)
     if (msg.type === 'history-get') {
       const keys = validKeys(msg.keys);
       return ws.send(JSON.stringify({ type: 'history', keys, ...historyFor(keys, 1200) }));
