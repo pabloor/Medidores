@@ -1162,7 +1162,7 @@
   }
   $('roleView').onclick = () => { qrRole = 'view'; showAddr(addrIndex); };
   $('roleCtl').onclick = () => { qrRole = 'control'; showAddr(addrIndex); };
-  $('regenKey').onclick = () => { if (confirm(t('phone.regenConfirm')) && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'control-key-regen' })); };
+  $('regenKey').onclick = () => confirmTap($('regenKey'), () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'control-key-regen' })); });
   // Ventana del QR: dirección elegida y, si el Mac tiene varias, la lista para cambiarla.
   function showAddr(i) {
     addrIndex = i;
@@ -2116,8 +2116,8 @@
     if (win) { $('report').close(); win.focus(); }
   };
   $('report').addEventListener('close', () => { clearInterval(histTimer); updateBadge(); });
-  $('clearLog').onclick = () => { if (confirm(t('confirm.clearLog'))) ws.send(JSON.stringify({ type: 'clip-log-clear' })); };
-  $('clearHistory').onclick = () => { if (confirm(t('confirm.clearHistory'))) ws.send(JSON.stringify({ type: 'history-clear' })); };
+  $('clearLog').onclick = () => confirmTap($('clearLog'), () => ws.send(JSON.stringify({ type: 'clip-log-clear' })));
+  $('clearHistory').onclick = () => confirmTap($('clearHistory'), () => ws.send(JSON.stringify({ type: 'history-clear' })));
 
   // Gráfica de nivel, de −60 a 0 dB. Un canal: pico (ámbar) y media (verde). Varios: el pico de cada uno, con su color.
   const H_MIN = -60, H_MAX = 0, PAD_L = 30;

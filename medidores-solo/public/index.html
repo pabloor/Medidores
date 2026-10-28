@@ -1346,6 +1346,13 @@
   $('cuDone').onclick = () => { $('customDlg').close(); store.set('ctlLayer', 'custom'); applyLayer(); };
   $('customDlg').addEventListener('close', applyLayer);
 
+  // Confirmación con un segundo toque en el mismo botón (algunos navegadores bloquean las ventanas de confirm())
+  function confirmTap(btn, action) {
+    if (btn.dataset.armed) { clearTimeout(btn._t); action(); return; }
+    const label = btn.textContent;
+    btn.dataset.armed = '1'; btn.textContent = t('btn.sure'); btn.style.background = 'var(--hot)'; btn.style.color = '#fff';
+    btn._t = setTimeout(() => { delete btn.dataset.armed; btn.textContent = label; btn.style.background = ''; btn.style.color = ''; }, 3000);
+  }
   // --- Receptores Shure
   let extState = {}, shureList = [];
   function onShure(m) {
@@ -1357,10 +1364,8 @@
       const li = document.createElement('li');
       const maps = Object.entries(r.map).map(([rx, ch]) => `${rx}→${ch}`).join(', ');
       li.innerHTML = `<i class="dot${m.online[k] ? ' on' : ''}"></i><span>${esc(r.ip)} · ${t('sh.channels')} ${esc(maps)}</span><button>${t('sh.remove')}</button>`;
-      li.querySelector('button').onclick = () => {
-        if (!confirm(t('sh.confirmRemove', { ip: r.ip }))) return;
-        ws.send(JSON.stringify({ type: 'shure-set', list: shureList.filter((_, j) => j !== k) }));
-      };
+      const b = li.querySelector('button');
+      b.onclick = () => confirmTap(b, () => ws.send(JSON.stringify({ type: 'shure-set', list: shureList.filter((_, j) => j !== k) })));
       $('shureList').appendChild(li);
     });
     cstrips.forEach(renderStrip);
@@ -1671,8 +1676,8 @@
     if (win) { $('report').close(); win.focus(); }
   };
   $('report').addEventListener('close', () => { clearInterval(histTimer); updateBadge(); });
-  $('clearLog').onclick = () => { if (confirm(t('confirm.clearLog'))) ws.send(JSON.stringify({ type: 'clip-log-clear' })); };
-  $('clearHistory').onclick = () => { if (confirm(t('confirm.clearHistory'))) ws.send(JSON.stringify({ type: 'history-clear' })); };
+  $('clearLog').onclick = () => confirmTap($('clearLog'), () => ws.send(JSON.stringify({ type: 'clip-log-clear' })));
+  $('clearHistory').onclick = () => confirmTap($('clearHistory'), () => ws.send(JSON.stringify({ type: 'history-clear' })));
 
   // Gráfica de nivel, de −60 a 0 dB. Un canal: pico (ámbar) y media (verde). Varios: el pico de cada uno, con su color.
   const H_MIN = -60, H_MAX = 0, PAD_L = 30;
