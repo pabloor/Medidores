@@ -500,6 +500,14 @@
   .lc-cmp b { font-weight: 600; }
   .lc-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; font-size: 14px; }
   .lc-links a { color: var(--sig); }
+  #lcInfo { width: min(480px, 92vw); }
+  #lcInfo .sub { font-size: 14px; color: var(--muted); margin: -6px 0 10px; }
+  .lc-probs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .lc-probs li { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--stage); font-size: 15px; line-height: 1.4; }
+  .lc-probs li b { display: block; font-size: 14px; margin-bottom: 2px; }
+  .lc-probs li.warn { border-color: var(--warm); }
+  .lc-probs li.warn b { color: var(--warm); }
+  .lc-probs li.ok b { color: var(--sig); }
   /* compartido:css-linecheck (fin) */
   .set-btn { display: block; width: 100%; margin: 4px 0 10px; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 16px; cursor: pointer; }
   #settings .set-field { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
@@ -753,6 +761,12 @@
   <p class="lc-cmp" id="lcCmp"></p>
   <div class="lc-links"><button id="lcResume" hidden data-i18n="lc.resume"></button><a id="lcCsv" href="linecheck.csv" download data-i18n="lc.csv"></a></div>
   <div class="actions"><button id="closeLc" data-i18n="btn.close"></button></div>
+</dialog>
+<dialog id="lcInfo" aria-labelledby="lcInfoTitle">
+  <h2 id="lcInfoTitle"></h2>
+  <p class="sub" id="lcInfoSub"></p>
+  <ul class="lc-probs" id="lcInfoList"></ul>
+  <div class="actions"><button id="lcInfoGo" data-i18n="lc.infoGo"></button><button id="lcInfoMsg" class="primary" data-i18n="lc.infoMsg"></button><button id="lcInfoClose" data-i18n="btn.close"></button></div>
 </dialog>
 <!-- compartido:dialogo-linecheck (fin) -->
 
@@ -2115,8 +2129,10 @@
   }; });
 
   // Texto de estado de un paso o tira del line check
+  // Tiras de otros pasos cuya señal entró por esta. Con los lados invertidos de un par, el otro lado ya lo dice el aviso.
+  const lcFrom = (r) => (r.crossFrom || []).filter((l) => !(r.swapped && l === r.cross));
   function lcStepText(r) {
-    const from = r.crossFrom && r.crossFrom.length ? `⚠ ${t('lc.crossFrom', { list: r.crossFrom.join(', ') })}` : ''; // por esta tira entró la señal de otro paso
+    const from = lcFrom(r).length ? `⚠ ${t('lc.crossFrom', { list: lcFrom(r).join(', ') })}` : ''; // por esta tira entró la señal de otro paso
     const fixed = r.fixed ? (r.fixed.swapped ? t('lc.fixedSwapped') : t(r.fixed.cross ? 'lc.fixedCross' : 'lc.fixedMissing', { ch: r.fixed.cross || r.fixed.missing })) : ''; // tuvo un problema y ya llega bien
     if (r.state === 'ok') return [`✓ ${fmtNum(r.peak)} dB`, fixed, r.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', r.also.length ? `⚠ ${t('lc.also', { list: r.also.join(', ') })}` : '', from].filter(Boolean).join(' · ');
     const warn = r.both ? `⚠ ${t(r.side === 'L' ? 'lc.bothL' : 'lc.bothR')}`
@@ -2188,7 +2204,11 @@
       lcRows = rows.map((_, k) => {
         const li = document.createElement('li');
         li.innerHTML = '<span class="nm"></span><span class="lvl"><i></i></span><span class="st"></span><button class="go"></button>';
-        li.onclick = () => { $('lcDlg').close(); openMsgs(li.dataset.label); };
+        li.onclick = () => {
+          const row = (lcState.rows || [])[k];
+          if (row && lcProblems(row).some((x) => x.warn)) return lcShowInfo(k); // tira con avisos: se explican
+          $('lcDlg').close(); openMsgs(li.dataset.label);
+        };
         const go = li.querySelector('.go');
         go.textContent = t('lc.goto');
         go.onclick = (e) => { e.stopPropagation(); sendShared({ type: 'lc-goto', step: k }); };
@@ -2199,7 +2219,7 @@
     const onlyPending = $('lcPending').checked;
     rows.forEach((row, k) => {
       const r = lcRows[k], isCur = lcState.active && guided && k === lcState.cur;
-      const warn = !!(row.cross || row.missing || row.both || row.unbalanced || row.also.length || (row.crossFrom || []).length);
+      const warn = !!(row.cross || row.missing || row.both || row.unbalanced || row.also.length || lcFrom(row).length);
       r.li.dataset.label = row.label.split(' + ')[0];
       r.nm.textContent = lcLabelOf(row);
       r.bar.style.width = `${Math.round(pos(lcState.active ? levels[row.keys[0]] ?? -90 : -90) * 100)}%`;
@@ -2223,6 +2243,45 @@
     $('lcCsv').hidden = !rows.length && !lcState.prev;
     $('lcCsv').href = ROLE === 'sala' ? 'linecheck.csv' : `http://${store.get('salaHost', '') || `${location.hostname}:3000`}/linecheck.csv`;
   }
+  // Problemas de una tira, explicados: [{ title, text, warn }]
+  function lcProblems(r) {
+    const P = lcState.prefs || {}, out = [];
+    const sideName = (side) => t(side === 'L' ? 'lc.theLeft' : 'lc.theRight');
+    const add = (title, text, warn = true) => out.push({ title, text: text.replace(/\.\./g, '.'), warn }); // "15 Acúst.." si el nombre acaba en punto
+    if (r.both) add(t('lc.pBoth'), t('lc.infoBoth', { side: sideName(r.side) }));
+    if (r.swapped) add(t('lc.pSwapped'), t('lc.infoSwapped', { side: sideName(r.side), ch: r.cross }));
+    else if (r.cross) add(t('lc.pCross'), t('lc.infoCross', { ch: r.cross }));
+    if (r.missing) add(t('lc.pMissing'), t('lc.infoMissing', { ch: r.missing }) + (r.missingTo ? ' ' + t('lc.infoMissingTo', { ch: r.missing, to: r.missingTo }) : ''));
+    if (lcFrom(r).length) add(t('lc.pFrom'), t('lc.infoFrom', { list: lcFrom(r).join(', ') }));
+    if (r.also.length) add(t('lc.pAlso'), t('lc.infoAlso', { list: r.also.join(', '), db: P.also ?? 20 }));
+    if (r.unbalanced && r.peaks && r.peaks.length === 2) add(t('lc.pUnbalanced'), t('lc.infoUnbalanced', { db: Math.abs(r.peaks[0] - r.peaks[1]).toFixed(1), l: fmtNum(r.peaks[0]), r: fmtNum(r.peaks[1]) }));
+    if (r.noise) add(t('lc.pNoise'), t('lc.infoNoise', { ch: (r.noisy || []).length ? r.noisy.join(', ') : r.label }));
+    if (r.fixed) add(t('lc.pFixed'), r.fixed.swapped ? t('lc.fixedSwapped') : t(r.fixed.cross ? 'lc.fixedCross' : 'lc.fixedMissing', { ch: r.fixed.cross || r.fixed.missing }), false);
+    return out;
+  }
+  let lcInfoStep = -1;
+  function lcShowInfo(k) {
+    const r = (lcState.rows || [])[k];
+    if (!r) return;
+    lcInfoStep = k;
+    $('lcInfoTitle').textContent = lcLabelOf(r);
+    $('lcInfoSub').textContent = r.state === 'ok' ? t('lc.infoOk', { db: fmtNum(r.peak) }) : r.state === 'skip' ? t('lc.infoSkipped') : t('lc.infoPending');
+    $('lcInfoList').innerHTML = lcProblems(r).map((x) => `<li class="${x.warn ? 'warn' : 'ok'}"><b>${x.warn ? '⚠' : '✓'} ${esc(x.title)}</b>${esc(x.text)}</li>`).join('');
+    $('lcInfoGo').hidden = !(lcState.active && lcState.mode === 'guided' && k !== lcState.cur);
+    if (!$('lcInfo').open) $('lcInfo').showModal();
+  }
+  $('lcInfoClose').onclick = () => $('lcInfo').close();
+  $('lcInfoGo').onclick = () => { sendShared({ type: 'lc-goto', step: lcInfoStep }); $('lcInfo').close(); };
+  // Enviar mensaje: abre los mensajes con la tira y el problema ya escritos
+  $('lcInfoMsg').onclick = () => {
+    const r = (lcState.rows || [])[lcInfoStep];
+    if (!r) return;
+    const first = lcProblems(r).find((x) => x.warn);
+    $('lcInfo').close(); $('lcDlg').close();
+    openMsgs(r.label.split(' + ')[0]);
+    if (first) $('msgText').value = `${first.title}: ${lcStepText(r).replace(/⚠ /g, '')}`.slice(0, 140);
+  };
+
   $('openLc').onclick = () => {
     if (ROLE === 'escenario' && !linkOk) return toast(t('msgs.linkOff'));
     dlg.close();

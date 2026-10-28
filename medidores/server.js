@@ -709,7 +709,10 @@ function lcRows(src = lc) {
     }));
     // La tira por la que entró la señal de otro paso también se marca ("recibe la señal de…")
     const at = new Map(); rows.forEach((r, n) => r.keys.forEach((k) => at.set(k, n)));
-    src.steps.forEach((s, n) => [...(s.cross || []), ...(s.missingTo || [])].forEach((k) => { if (at.has(k) && at.get(k) !== n) rows[at.get(k)].crossFrom.push(rows[n].label); }));
+    // (salvo el otro lado del mismo par: con los lados invertidos ya lo dice su aviso)
+    src.steps.forEach((s, n) => [...(s.cross || []), ...(s.missingTo || [])].forEach((k) => {
+      if (at.has(k) && at.get(k) !== n && !(s.swapped && s.pair && s.pair.includes(k))) rows[at.get(k)].crossFrom.push(rows[n].label);
+    }));
     return rows;
   }
   return src.items.map((it) => ({ keys: [it.k], label: lcLabel(it.k), state: it.ok ? 'ok' : 'pending', peak: r1(it.peak), peaks: [r1(it.peak)], cross: '', also: [], missing: '', unbalanced: false, noise: it.noise, noisy: [], crossFrom: [], fixed: null, side: null, swapped: false, both: false, missingTo: '' }));
