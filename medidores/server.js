@@ -237,8 +237,11 @@ function sanitizeIem(list) {
     }
     // nombres de canal leídos del emisor (opcional, para mostrarlos)
     const names = {};
-    for (const [ch, n] of Object.entries((e && e.names) || {})) if (map[ch] && typeof n === 'string' && n.trim()) names[ch] = n.trim().slice(0, 24);
-    if (Object.keys(map).length) out.push({ ip, model, map, ...(Object.keys(names).length ? { names } : {}) });
+    for (const [ch, n] of Object.entries((e && e.names) || {})) if (typeof n === 'string' && n.trim() && Number(ch) <= IEM_MODELS[model]) names[ch] = n.trim().slice(0, 24);
+    // canales que dice tener el emisor (leídos de él): permite guardarlo aunque aún no tenga buses ("sin asignar")
+    const channels = (Array.isArray(e && e.channels) ? e.channels : []).filter((c) => c && Number.isInteger(c.ch) && c.ch >= 1 && c.ch <= IEM_MODELS[model])
+      .map((c) => ({ ch: c.ch, mode: ['mono', 'stereo', 'dual'].includes(c.mode) && (c.mode !== 'dual' || IEM_DUAL[model]) ? c.mode : 'mono' })).slice(0, 4);
+    if (Object.keys(map).length || channels.length) out.push({ ip, model, map, ...(Object.keys(names).length ? { names } : {}), ...(channels.length ? { channels } : {}) });
   }
   return out;
 }
