@@ -310,6 +310,11 @@
   .iem-box.add { background: var(--well); }
   .iem-box.add.editing { border-color: var(--sig); }
   .iem-h { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  details.iem-box > summary { cursor: pointer; margin: 0; list-style: none; display: flex; align-items: center; gap: 8px; }
+  details.iem-box > summary::-webkit-details-marker { display: none; }
+  details.iem-box > summary::before { content: '+'; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--sig); color: #07130c; font-weight: 700; flex: none; }
+  details.iem-box[open] > summary::before { content: '−'; }
+  details.iem-box[open] > summary { margin-bottom: 4px; }
   .shure-list .iemtxt b { font-weight: 600; }
   .shure-list .iemtxt small { display: block; font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
   .iem-step { margin: 10px 0 0; font-size: 13px; color: var(--muted); font-weight: 600; }
@@ -647,8 +652,8 @@
       <ul class="shure-list" id="iemList"></ul>
       <p class="shure-hint" id="iemEmpty" data-i18n="iem.noneYet"></p>
     </div>
-    <div class="iem-box add" id="iemAddBox">
-      <p class="iem-h" id="iemFormTitle"></p>
+    <details class="iem-box add" id="iemAddBox">
+      <summary class="iem-h" id="iemFormTitle"></summary>
       <div id="iemSearch">
         <p class="iem-step" data-i18n="iem.step1"></p>
         <div class="shure-form">
@@ -675,7 +680,7 @@
       <div class="iem-btns"><button id="iemCancel" type="button" data-i18n="iem.cancel" hidden></button><button id="iemAdd" class="primary"></button></div>
     </div>
     <p class="error" id="iemErr"></p>
-    </div>
+    </details>
   </div>
   <div class="actions">
     <button id="changeMixer" data-i18n="btn.changeMixer"></button>
@@ -1716,6 +1721,7 @@
   }
   // Abre la ficha de un emisor (de la búsqueda o de la lista de guardados): la lee del emisor y, si ya estaba guardado, la rellena
   function iemOpen(ip) {
+    $('iemAddBox').open = true;
     $('iemIp').value = ip; $('iemIp').dispatchEvent(new Event('input'));
     iemPrefill(ip); fillIemSelects(); // por si el emisor no contesta: lo guardado
     $('iemRead').click();
@@ -1756,13 +1762,15 @@
     $('iemCancel').hidden = !editing;
     $('iemSearch').hidden = editing; // al editar no hace falta buscar
     $('iemAddBox').classList.toggle('editing', editing);
+    if (editing) $('iemAddBox').open = true; // al editar, la ficha se ve
   }
   function iemReset() {
     iemDetected = null; $('iemDet').textContent = ''; $('iemErr').textContent = '';
     $('iemIp').value = ''; for (let k = 1; k <= 4; k++) { $(`iemC${k}L`).value = ''; $(`iemC${k}R`).value = ''; $(`iemC${k}M`).value = 'mono'; }
     fillIemSelects(); iemFormMode();
   }
-  $('iemCancel').onclick = iemReset;
+  $('iemCancel').onclick = () => { iemReset(); $('iemAddBox').open = false; };
+  let iemListSeen = false;
   function renderIemList() {
     const label = (key) => { const st = strips.find((x) => `${x.gid}:${x.idx}` === key); return st ? st.label : key; };
     $('iemList').innerHTML = '';
@@ -1782,6 +1790,8 @@
       $('iemList').appendChild(li);
     });
     $('iemEmpty').hidden = iemState.list.length > 0;
+    if (!iemState.list.length && !iemListSeen) $('iemAddBox').open = true; // sin emisores, se abre para añadir el primero
+    iemListSeen = true;
     iemFormMode();
   }
   function onIem(m) { iemState = { ...iemState, ...m }; $('iemErr').textContent = ''; fillIemSelects(); renderIemList(); renderIemFound(); }
@@ -1804,6 +1814,7 @@
     ws.send(JSON.stringify({ type: 'iem-set', list: [...iemState.list.filter((e) => e.ip !== ip), { ip, model, map, names, ...(channels ? { channels } : {}) }] }));
     toast(t(iemState.list.some((e) => e.ip === ip) ? 'iem.saved' : 'iem.addedOk', { ip }));
     iemReset();
+    $('iemAddBox').open = false; // guardado: se pliega y se ve la lista
     $('iemList').scrollIntoView({ block: 'center', behavior: 'smooth' });
   };
 
