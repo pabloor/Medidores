@@ -494,7 +494,7 @@ function setLcPrefs(v) {
   prefs.lc = out; savePrefs();
 }
 const LC_FILE = path.join(DATA_DIR, 'linecheck.json');
-const lc = { active: false, startedAt: 0, mode: 'guided', items: [], byKey: new Map(), steps: [], cur: -1, hot: new Map(), busy: new Set(), cfg: { keys: [], pairs: [] }, interrupted: false, labels: {} };
+const lc = { active: false, startedAt: 0, mode: 'guided', items: [], byKey: new Map(), steps: [], cur: -1, hot: new Map(), busy: new Set(), unarmed: new Set(), cfg: { keys: [], pairs: [], onCross: 'next' }, interrupted: false, labels: {} };
 let lcLast = null;   // últimos niveles de todos los grupos (para saber qué tiras ya sonaban al empezar un paso)
 let lcHistory = [];  // line checks terminados, el más reciente al final
 let lcSaved = null;  // line check guardado al cerrar la app: se recupera al volver a conectar con la misma mesa
@@ -529,7 +529,7 @@ function lcCleanPairs(pairs, keys) {
   return out;
 }
 
-const lcNewStep = (keys) => ({ keys, state: 'pending', doneAt: 0, cross: null, also: new Set(), missing: null, unbalanced: false });
+const lcNewStep = (keys) => ({ keys, state: 'pending', doneAt: 0, cross: null, crossAt: 0, also: new Set(), missing: null, unbalanced: false, fixed: null });
 function lcStart(opts = {}) {
   if (!state.layout) return;
   // Tiras elegidas, en el orden en que llegan (es el orden del guiado). Sin elección: todas las entradas.
@@ -539,7 +539,7 @@ function lcStart(opts = {}) {
   const pairs = lcCleanPairs(opts.pairs, keys);
   lcArchive(); // el line check anterior, si tenía algo, pasa al historial
   lc.mode = opts.mode === 'free' ? 'free' : 'guided';
-  lc.cfg = { keys, pairs };
+  lc.cfg = { keys, pairs, onCross: opts.onCross === 'wait' ? 'wait' : 'next' }; // onCross: al detectar un cruce, pasar al siguiente (y volver al final) o esperar
   lc.active = true; lc.interrupted = false; lc.startedAt = Date.now(); lc.labels = {};
   lc.items = keys.map((k) => ({ k, ok: false, peak: -90, noise: false, level: -90, above: 0, win: [] }));
   lc.byKey = new Map(lc.items.map((it) => [it.k, it]));
@@ -556,20 +556,28 @@ function lcStart(opts = {}) {
   lcGoto(lc.mode === 'guided' ? 0 : -1);
 }
 
-// Va al paso k (−1 = ninguno). Al volver a un paso ya hecho, se repite desde cero.
-function lcGoto(k) {
+// Va al paso k (−1 = ninguno). El paso empieza de nuevo; conserva el aviso de cruce o de lado que falta (hasta que
+// la tira suene), salvo con fresh = true (Repetir).
+function lcGoto(k, fresh = false) {
   lc.cur = lc.mode === 'guided' && k >= 0 && k < lc.steps.length ? k : -1;
   const st = lc.steps[lc.cur];
   if (st) {
-    Object.assign(st, lcNewStep(st.keys));
+    Object.assign(st, lcNewStep(st.keys), fresh ? {} : { cross: st.cross, missing: st.missing, fixed: st.fixed }, { visits: (st.visits || 0) + 1 });
     for (const x of st.keys) { const it = lc.byKey.get(x); if (it) Object.assign(it, { ok: false, peak: -90, above: 0 }); }
   }
   // Las tiras que ya suenan al empezar el paso (ambiente, reproducción…) no cuentan como cruce hasta que se callen.
+  // Y si la propia tira del paso ya suena al empezar (p. ej. le llega la señal cruzada de otra), no cuenta hasta que se calle:
+  // solo vale la señal que empieza después de llegar al paso.
   lc.hot = new Map();
   lc.busy = new Set();
+  lc.unarmed = new Set();
   const thr = lcPrefs().signal;
-  if (st && lcLast) lcGroups().forEach(({ g, gi }) => (lcLast[gi] || []).forEach((db, i) => { const x = `${g.id}:${i}`; if (db >= thr && !st.keys.includes(x)) lc.busy.add(x); }));
+  if (st && lcLast) lcGroups().forEach(({ g, gi }) => (lcLast[gi] || []).forEach((db, i) => {
+    const x = `${g.id}:${i}`;
+    if (db >= thr) (st.keys.includes(x) ? lc.unarmed : lc.busy).add(x);
+  }));
   if (lc.mode === 'guided' && lc.active && lc.cur < 0) lcFinish(); // no quedan pasos: terminado
+  if (driver && typeof driver.lineCheckCue === 'function') driver.lineCheckCue(lc.active && st ? st.keys : []); // el simulador hace de técnico de escenario
   lcSend(); lcSave(true);
 }
 // Siguiente paso pendiente después de k (y si no hay, el primero pendiente desde el principio); −1 si no queda ninguno.
@@ -581,7 +589,7 @@ function lcNextPending(k) {
 function lcFinish() { lc.active = false; lc.cur = -1; lc.finishedAt = Date.now(); }
 function lcCommand(msg) {
   if (msg.type === 'lc-start') { lcStart(msg); return; }
-  if (msg.type === 'lc-stop') { if (lc.active) lcFinish(); lcSend(); lcSave(true); return; }
+  if (msg.type === 'lc-stop') { if (lc.active) lcFinish(); if (driver && typeof driver.lineCheckCue === 'function') driver.lineCheckCue([]); lcSend(); lcSave(true); return; }
   if (msg.type === 'lc-resume') { // seguir un line check interrumpido (la app se cerró) o terminado antes de tiempo
     if (lc.active || !lc.steps.length) return;
     lc.active = true; lc.interrupted = false; lc.finishedAt = 0;
@@ -592,7 +600,7 @@ function lcCommand(msg) {
   const st = lc.steps[lc.cur];
   if (msg.type === 'lc-next') { if (st && st.state === 'pending') st.state = 'skip'; lcGoto(lcNextPending(lc.cur)); }
   else if (msg.type === 'lc-prev') lcGoto(Math.max(0, lc.cur - 1));
-  else if (msg.type === 'lc-repeat') lcGoto(lc.cur);
+  else if (msg.type === 'lc-repeat') lcGoto(lc.cur, true);
   else if (msg.type === 'lc-goto' && Number.isInteger(msg.step) && msg.step >= 0 && msg.step < lc.steps.length) lcGoto(msg.step);
 }
 
@@ -608,7 +616,7 @@ function lcLevels(levels) {
         if (db >= thr) {
           h.above++; if (h.above === LC_HITS) h.since = now; if (db > h.peak) h.peak = db;
           if (h.above > LC_HITS) h.total += now - h.t; // tiempo total con señal en este paso (para elegir el cruce)
-        } else { h.above = 0; lc.busy.delete(k); }
+        } else { h.above = 0; lc.busy.delete(k); lc.unarmed.delete(k); }
         h.t = now;
         lc.hot.set(k, h);
       }
@@ -636,7 +644,7 @@ function lcGuided(now) {
   if (!st) return;
   const P = lcPrefs(), crossMs = P.cross * 1000;
   const gid = lcSplit(st.keys[0])[0];
-  const hot = (k) => { const h = lc.hot.get(k); return h && h.above >= LC_HITS ? h : null; };
+  const hot = (k) => { const h = lc.hot.get(k); return h && h.above >= LC_HITS && !lc.unarmed.has(k) ? h : null; };
   // Solo cuentan las tiras del mismo grupo: una entrada suena también en sus buses, y un bus en el máster.
   const others = [...lc.hot].filter(([k, h]) => h.above >= LC_HITS && !st.keys.includes(k) && !lc.busy.has(k) && lcSplit(k)[0] === gid);
   const sides = st.keys.map(hot);
@@ -644,6 +652,7 @@ function lcGuided(now) {
     const top = Math.max(...sides.map((h) => h.peak));
     if (gid === 'ch') for (const [k, h] of others) if (h.peak >= top - P.also) st.also.add(k); // en salidas, que suenen varias es normal
     if (st.state !== 'ok') {
+      if (st.cross || st.missing != null) st.fixed = { cross: st.cross, missing: st.missing }; // había un problema y ya llega bien: queda anotado
       st.state = 'ok'; st.doneAt = now; st.cross = null; st.missing = null;
       st.unbalanced = sides.length === 2 && Math.abs(sides[0].peak - sides[1].peak) > P.stereo;
       for (const k of st.keys) { const it = lc.byKey.get(k); if (it) it.ok = true; }
@@ -653,13 +662,20 @@ function lcGuided(now) {
   // Los avisos se mantienen aunque la señal pare, hasta que el paso se dé por bueno o se repita.
   const lit = st.keys.filter((k, n) => sides[n]);
   if (lit.length) st.cross = null; // ya suena la que toca: no era un cruce
-  if (st.keys.length === 2 && lit.length === 1 && now - hot(lit[0]).since >= crossMs) st.missing = st.keys.find((k) => k !== lit[0]);
+  if (st.keys.length === 2 && lit.length === 1 && now - hot(lit[0]).since >= crossMs) { st.missing = st.keys.find((k) => k !== lit[0]); if (!st.crossAt) st.crossAt = now; }
   // Posible cruce: las tiras del mismo grupo que han sonado al menos `cross` segundos mientras se esperaba la que toca,
   // de la que más tiempo ha sonado a la que menos (como mucho tres). Las que suenan un momento no cuentan.
   if (!lit.length && st.missing == null) {
     const c = [...lc.hot].filter(([k, h]) => h.total >= crossMs && !st.keys.includes(k) && !lc.busy.has(k) && lcSplit(k)[0] === gid)
       .sort((a, b) => b[1].total - a[1].total).slice(0, 3).map(([k]) => k);
-    if (c.length) st.cross = c;
+    if (c.length) { if (!st.crossAt) st.crossAt = now; st.cross = c; }
+  }
+  // Con onCross = 'next', tras mostrar el aviso (cruce o lado que falta) un momento se pasa al siguiente; el paso queda
+  // pendiente y se vuelve a él al final.
+  // Solo la primera vez: al volver a él, espera (es cuando se revisa ese canal).
+  if (st.crossAt && now - st.crossAt >= LC_ADVANCE_MS && lc.cfg.onCross !== 'wait' && st.visits <= 1) {
+    const nx = lcNextPending(lc.cur);
+    if (nx >= 0 && nx !== lc.cur) lcGoto(nx);
   }
 }
 
@@ -673,13 +689,14 @@ function lcRows(src = lc) {
       peak: r1(Math.max(...s.keys.map((k) => (byKey.get(k) || { peak: -90 }).peak))), peaks: s.keys.map((k) => r1((byKey.get(k) || { peak: -90 }).peak)),
       cross: (s.cross || []).map(lcLabel).join(', '), also: [...s.also].map(lcLabel), missing: s.missing != null ? lcLabel(s.missing) : '', unbalanced: s.unbalanced,
       noise: s.keys.some((k) => (byKey.get(k) || {}).noise), crossFrom: [],
+      fixed: s.fixed ? { cross: (s.fixed.cross || []).map(lcLabel).join(', '), missing: s.fixed.missing != null ? lcLabel(s.fixed.missing) : '' } : null,
     }));
     // La tira por la que entró la señal de otro paso también se marca ("recibe la señal de…")
     const at = new Map(); rows.forEach((r, n) => r.keys.forEach((k) => at.set(k, n)));
     src.steps.forEach((s, n) => (s.cross || []).forEach((k) => { if (at.has(k)) rows[at.get(k)].crossFrom.push(rows[n].label); }));
     return rows;
   }
-  return src.items.map((it) => ({ keys: [it.k], label: lcLabel(it.k), state: it.ok ? 'ok' : 'pending', peak: r1(it.peak), peaks: [r1(it.peak)], cross: '', also: [], missing: '', unbalanced: false, noise: it.noise, crossFrom: [] }));
+  return src.items.map((it) => ({ keys: [it.k], label: lcLabel(it.k), state: it.ok ? 'ok' : 'pending', peak: r1(it.peak), peaks: [r1(it.peak)], cross: '', also: [], missing: '', unbalanced: false, noise: it.noise, crossFrom: [], fixed: null }));
 }
 // Resumen de un line check para el historial y la comparación
 function lcSummary() {
@@ -704,7 +721,7 @@ function lcWrite() {
   const current = lc.items.length ? {
     mixer: lcMixerId(), mode: lc.mode, cfg: lc.cfg, startedAt: lc.startedAt, finishedAt: lc.finishedAt || 0, active: lc.active, cur: lc.cur, labels,
     items: lc.items.map((it) => ({ k: it.k, ok: it.ok, peak: it.peak, noise: it.noise })),
-    steps: lc.steps.map((s) => ({ keys: s.keys, state: s.state, cross: s.cross, also: [...s.also], missing: s.missing, unbalanced: s.unbalanced })),
+    steps: lc.steps.map((s) => ({ keys: s.keys, state: s.state, cross: s.cross, also: [...s.also], missing: s.missing, unbalanced: s.unbalanced, fixed: s.fixed })),
   } : null;
   const hist = lc.items.length && !lc.active ? [...lcHistory.filter((h) => h.t !== lc.startedAt), lcSummary()].slice(-LC_HISTORY) : lcHistory;
   try { fs.writeFileSync(LC_FILE, JSON.stringify({ current, history: hist })); } catch (e) { console.error('No se pudo guardar linecheck.json:', e.message); }
@@ -713,11 +730,11 @@ function lcWrite() {
 function lcRestore() {
   const f = lcSaved; lcSaved = null;
   if (!f || f.mixer !== lcMixerId() || !Array.isArray(f.items)) return;
-  Object.assign(lc, { mode: f.mode === 'free' ? 'free' : 'guided', cfg: f.cfg || { keys: [], pairs: [] }, startedAt: f.startedAt || 0, finishedAt: f.finishedAt || 0,
+  Object.assign(lc, { mode: f.mode === 'free' ? 'free' : 'guided', cfg: { keys: [], pairs: [], onCross: 'next', ...(f.cfg || {}) }, startedAt: f.startedAt || 0, finishedAt: f.finishedAt || 0,
     active: false, interrupted: !!f.active, cur: -1, labels: f.labels || {} });
   lc.items = f.items.map((it) => ({ k: it.k, ok: !!it.ok, peak: Number(it.peak) || -90, noise: !!it.noise, level: -90, above: 0, win: [] }));
   lc.byKey = new Map(lc.items.map((it) => [it.k, it]));
-  lc.steps = (f.steps || []).map((s) => ({ ...lcNewStep(s.keys), state: s.state, cross: s.cross == null ? null : [].concat(s.cross), also: new Set(s.also || []), missing: s.missing, unbalanced: !!s.unbalanced }));
+  lc.steps = (f.steps || []).map((s) => ({ ...lcNewStep(s.keys), state: s.state, cross: s.cross == null ? null : [].concat(s.cross), also: new Set(s.also || []), missing: s.missing, unbalanced: !!s.unbalanced, fixed: s.fixed || null }));
 }
 
 function lcPayload() {
@@ -747,6 +764,7 @@ function lcCsv() {
   src.rows.forEach((r, n) => {
     const warns = [r.cross && `la señal entra por ${r.cross}`, r.crossFrom && r.crossFrom.length && `recibe la señal de ${r.crossFrom.join(', ')}`,
       r.missing && `falta ${r.missing}`, r.unbalanced && 'lados con niveles distintos',
+      r.fixed && (r.fixed.cross ? `corregido: entraba por ${r.fixed.cross}` : `corregido: faltaba ${r.fixed.missing}`),
       r.also && r.also.length && `también suena ${r.also.join(', ')}`].filter(Boolean).join('; ');
     rows.push([n + 1, r.label, st[r.state] || r.state, r.state === 'ok' ? r.peak : '', warns, r.noise ? 'posible ruido' : '']);
   });

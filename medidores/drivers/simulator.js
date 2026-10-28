@@ -43,25 +43,49 @@ class Simulator extends EventEmitter {
     }, 33);
   }
 
-  // SIM_LINECHECK=1: simula un line check. Cada 2,5 s "alguien" da señal al siguiente canal y al siguiente bus, con fallos a propósito.
-  // En los canales:
-  // Tom 2 entra por el canal de Base (cruce), a Teclas R no le llega nada (par estéreo con un lado) y con la Voz suena también Coro 1.
+  // SIM_LINECHECK=1: simula un line check con fallos a propósito.
+  // Con el line check guiado en marcha, hace de técnico de escenario: el servidor le dice qué tiras tocan (lineCheckCue)
+  // y, un segundo después, les da señal durante unos segundos. La primera vez que se pide cada una reproduce su fallo;
+  // la segunda ya está "arreglado" (así se ve que el guiado vuelve a los pendientes al final):
+  //   5 Tom 2 entra por 6 Base (cruce) · a 14 Teclas R no le llega nada (par estéreo con un lado)
+  //   con 16 Voz suena también 17 Coro 1 (micro abierto) · el bus Mon 3 sale por Mon 4 (cruce de envíos)
+  // Sin line check guiado (o en libre), da señal a un canal y a un bus cada 2,5 s, con los mismos fallos.
+  // En los dos casos, 20 PC L tiene un zumbido bajo y constante.
+  lineCheckCue(keys) {
+    const id = keys.join('|');
+    this.lcVisits = this.lcVisits || new Map();
+    const n = (this.lcVisits.get(id) || 0) + 1;
+    this.lcVisits.set(id, n);
+    this.cue = keys.length ? { keys, first: n === 1, at: Date.now() } : null;
+  }
+  // Tiras que suenan cuando el técnico da señal a `keys` (con su fallo, si es la primera vez)
+  lineCheckSounds(keys, first) {
+    const out = [];
+    for (const k of keys) {
+      if (first && k === 'ch:4') out.push(['ch:5', -18]);            // Tom 2 → suena Base
+      else if (first && k === 'ch:13') continue;                    // Teclas R no llega
+      else if (first && k === 'bus:2') out.push(['bus:3', -20]);    // Mon 3 → sale por Mon 4
+      else out.push([k, k.startsWith('bus:') ? -20 : -18]);
+      if (k === 'ch:15') out.push(['ch:16', -26]);                  // con la Voz, Coro 1 abierto (siempre)
+    }
+    return out;
+  }
   lineCheckLevels(t) {
-    const k = Math.floor(t / 2.5) % CH.length;
-    const ch = CH.map(() => -90);
-    const on = (i, db = -18) => { ch[i] = db + noise(); };
-    if (k === 4) on(5);                      // Tom 2 → suena Base
-    else if (k === 6 || k === 7) { on(6); on(7); } // OH L y OH R a la vez
-    else if (k === 12 || k === 13) on(12);   // Teclas L sí, Teclas R no
-    else if (k === 15) { on(15); on(16, -26); } // Voz, y Coro 1 abierto
-    else on(k);
-    ch[19] = -60 + noise() * 0.5;            // PC L: zumbido bajo y constante
-    // Buses: también uno cada 2,5 s. Mon 3 sale por Mon 4 (cruce) e IEM L/R suenan juntos (par estéreo).
-    const kb = Math.floor(t / 2.5) % BUS.length;
-    const bus = BUS.map(() => -90);
-    if (kb === 2) bus[3] = -20 + noise();
-    else if (kb === 4 || kb === 5) { bus[4] = -20 + noise(); bus[5] = -21 + noise(); }
-    else bus[kb] = -20 + noise();
+    const ch = CH.map(() => -90), bus = BUS.map(() => -90);
+    const set = ([k, db]) => { const [g, i] = k.split(':'); const a = g === 'ch' ? ch : g === 'bus' ? bus : null; if (a && a[+i] !== undefined) a[+i] = db + noise(); };
+    const c = this.cue;
+    if (c) { // el técnico espera en silencio a la siguiente indicación
+      const dt = (Date.now() - c.at) / 1000;
+      if (dt > 1 && dt < 5) this.lineCheckSounds(c.keys, c.first).forEach(set); // 1 s para ir al micro, 4 s de señal
+    } else {
+      const k = Math.floor(t / 2.5) % CH.length, kb = Math.floor(t / 2.5) % BUS.length;
+      this.lineCheckSounds([`ch:${k}`], true).forEach(set);
+      if (k === 6 || k === 7) { set(['ch:6', -18]); set(['ch:7', -18]); }      // OH L y OH R a la vez
+      if (k === 12 || k === 13) set(['ch:12', -18]);                          // Teclas L sí, Teclas R no
+      if (kb === 4 || kb === 5) { set(['bus:4', -20]); set(['bus:5', -21]); }  // IEM L y R a la vez
+      else this.lineCheckSounds([`bus:${kb}`], true).forEach(set);
+    }
+    ch[19] = Math.max(ch[19], -60 + noise() * 0.5); // PC L: zumbido bajo y constante (debajo de la señal, si se la dan)
     return [ch, bus, [-90, -90]];
   }
 

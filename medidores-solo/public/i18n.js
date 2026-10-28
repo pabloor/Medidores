@@ -156,6 +156,10 @@ window.I18N = {
     'lc.cmpSame': 'mismo resultado.',
     'lc.crossFrom': 'Recibe la señal de {list}',
     'lc.crossSum': 'Posibles cruces: {list}',
+    'lc.onCrossNext': 'Si hay un cruce, seguir con el siguiente y volver a él al final',
+    'lc.later': 'se vuelve a él al final',
+    'lc.fixedCross': 'corregido: entraba por {ch}',
+    'lc.fixedMissing': 'corregido: faltaba {ch}',
     // compartido:i18n-linecheck (fin)
     'ly.aria': 'Capas',
     'ly.ch': 'Canales',
@@ -324,6 +328,10 @@ window.I18N = {
     'lc.cmpSame': 'same result.',
     'lc.crossFrom': 'Gets the signal of {list}',
     'lc.crossSum': 'Possible crosses: {list}',
+    'lc.onCrossNext': 'On a cross, carry on with the next one and come back to it at the end',
+    'lc.later': 'will come back to it at the end',
+    'lc.fixedCross': 'fixed: was arriving on {ch}',
+    'lc.fixedMissing': 'fixed: {ch} was missing',
     // compartido:i18n-linecheck (fin)
     'ly.aria': 'Layers',
     'ly.ch': 'Channels',
@@ -492,6 +500,10 @@ window.I18N = {
     'lc.cmpSame': '结果相同。',
     'lc.crossFrom': '收到 {list} 的信号',
     'lc.crossSum': '可能的交叉：{list}',
+    'lc.onCrossNext': '发现交叉时继续下一个，最后再回来检查',
+    'lc.later': '最后会回来检查',
+    'lc.fixedCross': '已修正：之前从 {ch} 进入',
+    'lc.fixedMissing': '已修正：之前缺少 {ch}',
     // compartido:i18n-linecheck (fin)
     'ly.aria': '层',
     'ly.ch': '输入通道',
@@ -660,6 +672,10 @@ window.I18N = {
     'lc.cmpSame': 'результат тот же.',
     'lc.crossFrom': 'Сюда приходит сигнал {list}',
     'lc.crossSum': 'Возможные перепутки: {list}',
+    'lc.onCrossNext': 'При перепутке переходить к следующему и вернуться к нему в конце',
+    'lc.later': 'вернёмся к нему в конце',
+    'lc.fixedCross': 'исправлено: приходил на {ch}',
+    'lc.fixedMissing': 'исправлено: не было {ch}',
     // compartido:i18n-linecheck (fin)
     'ly.aria': 'Слои',
     'ly.ch': 'Каналы',
