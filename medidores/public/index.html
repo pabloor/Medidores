@@ -270,6 +270,7 @@
   }
   .cs-on::before { content: ""; position: absolute; left: 4px; right: 4px; top: -8px; height: 1px; background: var(--line); }
   .cs-on[aria-pressed="true"] { background: var(--warm); border-color: var(--warm); color: #231703; }
+  .cs-on.mute[aria-pressed="true"] { background: var(--hot); border-color: var(--hot); color: #fff; }
   .cs-fader { position: relative; flex: 1; min-height: 120px; display: grid; grid-template-columns: 7px 1fr 19px; gap: 3px; touch-action: pan-x; cursor: ns-resize; }
   /* Escala del fader en dB, como la impresa junto a los faders de la mesa */
   .cs-scale { position: relative; margin: 11px 0; font-size: 9.5px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -1859,7 +1860,11 @@
     const p = fpos(d.fader);
     cs.cap.style.transform = `translateY(${(1 - p) * cs.track.clientHeight}px)`;
     cs.val.textContent = fmtDb(d.fader);
-    cs.on.setAttribute('aria-pressed', String(!!d.on));
+    // DiGiCo: botón MUTE (encendido = silenciado), como en la mesa; las demás, ON (encendido = abierto)
+    const muteBtn = !!(ctrl.caps && ctrl.caps.muteButton);
+    cs.on.classList.toggle('mute', muteBtn);
+    cs.on.textContent = muteBtn ? 'MUTE' : 'ON';
+    cs.on.setAttribute('aria-pressed', String(muteBtn ? !d.on : !!d.on));
     if (cs.g === 'ch') {
       const e = d.gain == null ? extState[cs.i] : null;
       cs.gain.textContent = e ? (e.online && e.gain != null ? fmtGain(e.gain) : '—') : fmtGain(d.gain);
