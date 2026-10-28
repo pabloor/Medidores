@@ -692,6 +692,7 @@
       <label class="chk"><input type="radio" name="lcMode" value="free"><span data-i18n="lc.modeFree"></span></label>
     </div>
     <label class="chk" id="lcOnCrossRow"><input type="checkbox" id="lcOnCross"><span data-i18n="lc.onCrossNext"></span></label>
+    <label class="chk" id="lcLrRow"><input type="checkbox" id="lcLr"><span data-i18n="lc.lrCheck"></span></label>
     <div class="lc-pick"><span data-i18n="lc.channels"></span><button id="lcPickNamed" data-i18n="lc.pickNamed"></button><button id="lcPickAll" data-i18n="lc.pickAll"></button><button id="lcPickNone" data-i18n="lc.pickNone"></button></div>
     <div class="lc-chans" id="lcChans"></div>
     <label class="set-field"><span data-i18n="lc.pairs"></span><small id="lcPairsHint"></small><input id="lcPairs" autocomplete="off" spellcheck="false" placeholder="7-8, 13-14"></label>
@@ -1993,6 +1994,8 @@
     document.querySelectorAll('input[name=lcMode]').forEach((x) => { x.checked = x.value === lcMode(); });
     $('lcOnCross').checked = store.get('lcOnCross', true);
     $('lcOnCrossRow').hidden = lcMode() !== 'guided';
+    $('lcLr').checked = store.get('lcLr', false);
+    $('lcLrRow').hidden = lcMode() !== 'guided';
     const auto = lcState.autoPairs || [];
     $('lcPairsHint').textContent = auto.length ? `${t('lc.pairsHint')} ${t('lc.pairsAuto', { list: lcPairsText(auto) })}` : t('lc.pairsHint');
     if (document.activeElement !== $('lcPairs')) $('lcPairs').value = store.get('lcPairs', null) ?? lcPairsText(auto);
@@ -2016,6 +2019,7 @@
   $('lcPickNone').onclick = () => lcPick(() => false);
   $('lcPairs').onchange = () => store.set('lcPairs', $('lcPairs').value);
   $('lcOnCross').onchange = () => store.set('lcOnCross', $('lcOnCross').checked);
+  $('lcLr').onchange = () => store.set('lcLr', $('lcLr').checked);
   $('lcOrder').onchange = () => store.set('lcOrder', $('lcOrder').value);
   ['Signal', 'Also', 'Stereo', 'Cross'].forEach((id) => { $('lcThr' + id).onchange = () => {
     sendShared({ type: 'lc-prefs', prefs: { signal: $('lcThrSignal').value, also: $('lcThrAlso').value, stereo: $('lcThrStereo').value, cross: $('lcThrCross').value } });
@@ -2024,12 +2028,16 @@
   // Texto de estado de un paso o tira del line check
   function lcStepText(r) {
     const from = r.crossFrom && r.crossFrom.length ? `⚠ ${t('lc.crossFrom', { list: r.crossFrom.join(', ') })}` : ''; // por esta tira entró la señal de otro paso
-    const fixed = r.fixed ? t(r.fixed.cross ? 'lc.fixedCross' : 'lc.fixedMissing', { ch: r.fixed.cross || r.fixed.missing }) : ''; // tuvo un problema y ya llega bien
+    const fixed = r.fixed ? (r.fixed.swapped ? t('lc.fixedSwapped') : t(r.fixed.cross ? 'lc.fixedCross' : 'lc.fixedMissing', { ch: r.fixed.cross || r.fixed.missing })) : ''; // tuvo un problema y ya llega bien
     if (r.state === 'ok') return [`✓ ${fmtNum(r.peak)} dB`, fixed, r.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', r.also.length ? `⚠ ${t('lc.also', { list: r.also.join(', ') })}` : '', from].filter(Boolean).join(' · ');
-    const warn = r.cross ? `⚠ ${t('lc.cross', { ch: r.cross })}` : r.missing ? `⚠ ${t('lc.sideMissing', { ch: r.missing })}` : '';
+    const warn = r.both ? `⚠ ${t(r.side === 'L' ? 'lc.bothL' : 'lc.bothR')}`
+      : r.swapped ? `⚠ ${t('lc.swapped', { ch: r.cross })}`
+      : r.cross ? `⚠ ${t('lc.cross', { ch: r.cross })}`
+      : r.missing ? `⚠ ${t(r.missingTo ? 'lc.sideMissingTo' : 'lc.sideMissing', { ch: r.missing, to: r.missingTo })}` : '';
     return [r.state === 'skip' ? t('lc.skipped') : '', warn, from].filter(Boolean).join(' · '); // un paso saltado conserva su aviso
   }
   const lcNum = (label) => label.split(' + ').map((l) => l.split(' ')[0]).join('+'); // "13 Teclas L + 14 Teclas R" → "13+14"
+  const lcLabelOf = (r) => r.side ? `${r.label} (${t(r.side === 'L' ? 'lc.onlyLeft' : 'lc.onlyRight')})` : r.label; // paso de un solo lado de un par
   // Comparación con el line check anterior: qué ha cambiado en las mismas tiras
   function lcCompare() {
     const prev = lcState.prev, rows = lcState.rows || [];
@@ -2067,16 +2075,16 @@
     const cur = guided && lcState.active ? rows[lcState.cur] : null;
     $('lcNow').hidden = !cur;
     if (cur) {
-      $('lcCur').textContent = cur.label;
+      $('lcCur').textContent = lcLabelOf(cur);
       const live = lcState.live || [];
       if ($('lcLive').children.length !== cur.keys.length) $('lcLive').innerHTML = cur.keys.map(() => '<span><i></i></span>').join('');
       [...$('lcLive').querySelectorAll('i')].forEach((el, k) => { el.style.width = `${Math.round(pos(live[k] ?? -90) * 100)}%`; });
       const txt = lcStepText(cur);
-      $('lcState').textContent = txt || t('lc.waiting');
+      $('lcState').textContent = txt || t(cur.side ? (cur.side === 'L' ? 'lc.waitLeft' : 'lc.waitRight') : 'lc.waiting');
       $('lcState').className = `state${cur.state === 'ok' ? ' ok' : txt ? ' warn' : ''}`;
-      $('lcNow').classList.toggle('alert', !!(cur.cross || cur.missing)); // tarjeta en naranja mientras haya un cruce o falte un lado
+      $('lcNow').classList.toggle('alert', !!(cur.cross || cur.missing || cur.both)); // tarjeta en naranja mientras haya un problema
       const nxt = rows.find((r, k) => k > lcState.cur && r.state === 'pending');
-      $('lcNext').textContent = nxt ? t('lc.next', { name: nxt.label }) : t('lc.last');
+      $('lcNext').textContent = nxt ? t('lc.next', { name: lcLabelOf(nxt) }) : t('lc.last');
       $('lcPrev').disabled = lcState.cur <= 0;
       // vibración corta al dar un paso por bueno (Android)
       if (lcState.cur === lcLastCur && cur.state === 'ok' && !lcLastOk) { try { navigator.vibrate && navigator.vibrate(80); } catch {} }
@@ -2102,21 +2110,22 @@
     const onlyPending = $('lcPending').checked;
     rows.forEach((row, k) => {
       const r = lcRows[k], isCur = lcState.active && guided && k === lcState.cur;
-      const warn = !!(row.cross || row.missing || row.unbalanced || row.also.length || (row.crossFrom || []).length);
+      const warn = !!(row.cross || row.missing || row.both || row.unbalanced || row.also.length || (row.crossFrom || []).length);
       r.li.dataset.label = row.label.split(' + ')[0];
-      r.nm.textContent = row.label;
+      r.nm.textContent = lcLabelOf(row);
       r.bar.style.width = `${Math.round(pos(lcState.active ? levels[row.keys[0]] ?? -90 : -90) * 100)}%`;
       r.li.classList.toggle('ok', row.state === 'ok');
       r.li.classList.toggle('noise', row.noise);
       r.li.classList.toggle('warn', warn);
       r.li.classList.toggle('cur', isCur);
       const later = lcState.active && guided && !isCur && row.state === 'pending' && row.cross ? t('lc.later') : ''; // se pasó de largo por un cruce: se vuelve al final
-      r.st.textContent = [lcStepText(row), later, row.noise ? `⚠ ${t('lc.noise')}` : ''].filter(Boolean).join(' · ') || (isCur ? t('lc.now') : t('lc.pending'));
+      const noise = row.noise ? `⚠ ${(row.noisy || []).length ? t('lc.noiseIn', { ch: row.noisy.join(', ') }) : t('lc.noise')}` : ''; // en un par, en qué lado
+      r.st.textContent = [lcStepText(row), later, noise].filter(Boolean).join(' · ') || (isCur ? t('lc.now') : t('lc.pending'));
       r.go.hidden = !(lcState.active && guided) || isCur;
       r.li.hidden = onlyPending && row.state === 'ok' && !row.noise && !warn;
     });
     const missing = rows.filter((r) => r.state !== 'ok').map((r) => lcNum(r.label));
-    const crosses = rows.filter((r) => r.cross).map((r) => `${lcNum(r.label)} → ${r.cross.split(', ').map(lcNum).join('/')}`); // "5 → 6/7"
+    const crosses = rows.filter((r) => r.cross || r.missingTo).map((r) => `${lcNum(r.label)} → ${(r.cross || r.missingTo).split(', ').map(lcNum).join('/')}`); // "5 → 6/7"
     $('lcSum').textContent = rows.length && !lcState.active
       ? [t('lc.missing', { list: missing.length ? missing.join(', ') : t('lc.none') }), crosses.length ? t('lc.crossSum', { list: crosses.join(', ') }) : ''].filter(Boolean).join(' · ')
       : '';
@@ -2144,7 +2153,7 @@
       store.set('lcPairs', $('lcPairs').value); store.set('lcOrder', $('lcOrder').value);
     }
     lcRows = [];
-    sendShared({ type: 'lc-start', mode: lcMode(), keys, pairs, onCross: store.get('lcOnCross', true) ? 'next' : 'wait' });
+    sendShared({ type: 'lc-start', mode: lcMode(), keys, pairs, onCross: store.get('lcOnCross', true) ? 'next' : 'wait', lrCheck: store.get('lcLr', false) });
   };
   $('lcStop').onclick = () => { sendShared({ type: 'lc-stop' }); };
   $('lcResume').onclick = () => { sendShared({ type: 'lc-resume' }); };

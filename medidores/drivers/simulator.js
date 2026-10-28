@@ -47,10 +47,11 @@ class Simulator extends EventEmitter {
   // Con el line check guiado en marcha, hace de técnico de escenario: el servidor le dice qué tiras tocan (lineCheckCue)
   // y, un segundo después, les da señal durante unos segundos. La primera vez que se pide cada una reproduce su fallo;
   // la segunda ya está "arreglado" (así se ve que el guiado vuelve a los pendientes al final):
-  //   5 Tom 2 entra por 6 Base (cruce) · a 14 Teclas R no le llega nada (par estéreo con un lado)
+  //   5 Tom 2 entra por 6 Base (cruce) · 14 Teclas R entra por 15 Acúst. (al par le falta un lado)
+  //   7 OH L y 8 OH R invertidos (solo se ve comprobando los lados por separado)
   //   con 16 Voz suena también 17 Coro 1 (micro abierto) · el bus Mon 3 sale por Mon 4 (cruce de envíos)
   // Sin line check guiado (o en libre), da señal a un canal y a un bus cada 2,5 s, con los mismos fallos.
-  // En los dos casos, 20 PC L tiene un zumbido bajo y constante.
+  // En los dos casos, 20 PC L y 14 Teclas R tienen un zumbido bajo y constante.
   lineCheckCue(keys) {
     const id = keys.join('|');
     this.lcVisits = this.lcVisits || new Map();
@@ -63,7 +64,9 @@ class Simulator extends EventEmitter {
     const out = [];
     for (const k of keys) {
       if (first && k === 'ch:4') out.push(['ch:5', -18]);            // Tom 2 → suena Base
-      else if (first && k === 'ch:13') continue;                    // Teclas R no llega
+      else if (first && k === 'ch:13') out.push(['ch:14', -18]);     // Teclas R → entra por Acúst.
+      else if (first && keys.length === 1 && k === 'ch:6') out.push(['ch:7', -18]); // OH L y R invertidos (pidiendo un solo lado)
+      else if (first && keys.length === 1 && k === 'ch:7') out.push(['ch:6', -18]);
       else if (first && k === 'bus:2') out.push(['bus:3', -20]);    // Mon 3 → sale por Mon 4
       else out.push([k, k.startsWith('bus:') ? -20 : -18]);
       if (k === 'ch:15') out.push(['ch:16', -26]);                  // con la Voz, Coro 1 abierto (siempre)
@@ -86,6 +89,7 @@ class Simulator extends EventEmitter {
       else this.lineCheckSounds([`bus:${kb}`], true).forEach(set);
     }
     ch[19] = Math.max(ch[19], -60 + noise() * 0.5); // PC L: zumbido bajo y constante (debajo de la señal, si se la dan)
+    ch[13] = Math.max(ch[13], -62 + noise() * 0.5); // Teclas R: también, para ver en qué lado del par está el ruido
     return [ch, bus, [-90, -90]];
   }
 
