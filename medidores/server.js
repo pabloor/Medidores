@@ -270,6 +270,66 @@ const iemDetect = (ip) => (driver && typeof driver.iemDetect === 'function' ? dr
 const iemLive = () => !!(driver && typeof driver.iemInput === 'function' && process.env.SIM_LINECHECK); // hoy solo el simulador
 const iemMsg = () => ({ type: 'iem', list: iemList, models: IEM_MODELS, dual: IEM_DUAL, live: iemLive() });
 
+// --- Búsqueda de equipos Shure en la red de un adaptador. Dos métodos:
+//   1. Descubrimiento de Shure (el que usa Wireless Workbench: los equipos se anuncian en la red). PENDIENTE: hay que ver
+//      cómo se anuncian el P10T y el ADTQ con tools/shure-pruebas/escuchar-descubrimiento.js y escribir shureDiscover().
+//   2. Recorrer la red: se pregunta el modelo a cada dirección por el puerto de control (TCP 2202). Es el respaldo si el
+//      descubrimiento no está o no encuentra nada. En redes grandes (p. ej. 169.254.x.x de Dante) se recorren solo las 254
+//      direcciones vecinas a la del Mac.
+// Los dos solo leen (GET MODEL / DEVICE_ID no cambian nada).
+const SHURE_TX = /^(P10T|ADTD|ADTQ)/;                 // emisores de IEM
+const SHURE_RX = /^(AD4D|AD4Q|ULXD4|QLXD4|SLXD4|AD610|ADX)/; // receptores
+function shureAsk(ip, localAddress, port = 2202) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host: ip, port, ...(localAddress ? { localAddress } : {}) });
+    let buf = '', done = false;
+    const info = {};
+    const end = () => { if (done) return; done = true; sock.destroy(); resolve(info.model ? { ip, ...info } : null); };
+    sock.setTimeout(500, end);
+    sock.on('connect', () => { sock.write('< GET MODEL >\r\n< GET DEVICE_ID >\r\n'); setTimeout(end, 700); });
+    sock.on('data', (d) => {
+      buf += d;
+      for (const m of buf.matchAll(/<\s*(?:REP|REPORT)\s+(?:\d+\s+)?(MODEL|DEVICE_ID)\s+\{?([^}>]*?)\}?\s*>/g)) info[m[1] === 'MODEL' ? 'model' : 'name'] = m[2].trim();
+      if (info.model && info.name) end();
+    });
+    sock.on('error', end);
+  });
+}
+// Direcciones de la red de un adaptador (sin la propia), como mucho 1022; si es más grande, las 254 vecinas.
+function nicHosts(nic) {
+  const a = (os.networkInterfaces()[nic] || []).find((x) => (x.family === 'IPv4' || x.family === 4) && !x.internal);
+  if (!a) return null;
+  const toN = (s) => s.split('.').reduce((n, o) => n * 256 + Number(o), 0), toS = (n) => [24, 16, 8, 0].map((b) => (n >>> b) & 255).join('.');
+  const ip = toN(a.address), mask = toN(a.netmask || '255.255.255.0');
+  let net0 = ip & mask, size = (~mask >>> 0) + 1;
+  if (size > 1024) { net0 = ip & 0xffffff00; size = 256; }
+  const out = [];
+  for (let n = 1; n < size - 1; n++) { const h = (net0 + n) >>> 0; if (h !== ip) out.push(toS(h)); }
+  return { address: a.address, hosts: out };
+}
+// Método 1, por hacer: escuchar (y si hace falta, pedir) los anuncios de los equipos Shure en la red del adaptador y
+// devolver [{ ip, model, name }]. Mientras devuelva null, se usa el método 2.
+async function shureDiscover(nic, address) {
+  return null;
+}
+async function shureScan(nic) {
+  const r = nicHosts(nic);
+  if (!r) return { ok: false, error: 'nic' };
+  const kind = (m) => (SHURE_TX.test(m) ? 'tx' : SHURE_RX.test(m) ? 'rx' : 'other');
+  const sim = driver && typeof driver.shureScan === 'function' ? driver.shureScan() || [] : []; // el simulador de line check añade equipos de prueba
+  const finish = (method, found) => ({ ok: true, method, scanned: method === 'scan' ? r.hosts.length : 0, from: r.address,
+    devices: [...found, ...sim].map((d) => ({ ...d, kind: kind(d.model) })).sort((x, y) => x.ip.localeCompare(y.ip, 'en', { numeric: true })) });
+  if (sim.length) return finish('sim', []); // con el simulador no se toca la red real
+  const disc = await shureDiscover(nic, r.address).catch(() => null);
+  if (disc && disc.length) return finish('discovery', disc);
+  const found = [];
+  const queue = [...r.hosts];
+  await Promise.all(Array.from({ length: 64 }, async () => { // 64 a la vez: una /24 en un par de segundos
+    while (queue.length) { const d = await shureAsk(queue.shift(), r.address); if (d) found.push(d); }
+  }));
+  return finish('scan', found);
+}
+
 // --- Registro del bolo: saturaciones e historial del nivel de salida.
 // Lo guarda el Mac para que sea igual en todos los móviles. Se reinicia al cambiar de mesa.
 const CLIP_AT = 0;               // dB: igual que el indicador rojo de la app (verificado con la DM7)
@@ -910,7 +970,7 @@ const encVal = (v) => (v === -Infinity ? '-inf' : v);
 const enc = (c) => ({ caps: c.caps, ch: c.ch.map(encStrip), main: c.main.map(encStrip), bus: (c.bus || []).map(encStrip), mtx: (c.mtx || []).map(encStrip), vca: (c.vca || []).map(encStrip) });
 const encStrip = (s) => ({ ...s, fader: encVal(s.fader) });
 const meterPointMsg = () => ({ type: 'meter-point', value: prefs.meterPoint, supported: !!(driver && typeof driver.setMeterPoint === 'function') });
-const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'iem-set', 'iem-detect', 'meter-point', 'history-clear', 'clip-log-clear', 'lc-prefs']);
+const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'iem-set', 'iem-detect', 'shure-scan', 'meter-point', 'history-clear', 'clip-log-clear', 'lc-prefs']);
 // La clave solo se le muestra al propio ordenador (para el QR de control).
 const roleMsg = (ws) => ({ type: 'role', role: ws.canControl ? 'control' : 'viewer', ...(ws.local ? { key: prefs.controlKey } : {}) });
 const infoMsg = () => ({ type: 'config', config: state.config, urls: lanUrls(), ifaces: lanAddresses().map((a) => a.name), version: APP_VERSION });
@@ -999,6 +1059,10 @@ wss.on('connection', (ws, req) => {
       return ws.send(JSON.stringify(roleMsg(ws)));
     }
     if (msg.type === 'lc-prefs') { setLcPrefs(msg.prefs); return lcSend(); } // umbrales del line check (ajuste compartido: solo con control)
+    if (msg.type === 'shure-scan') { // buscar equipos Shure en la red de un adaptador
+      const nic = typeof msg.nic === 'string' && /^[A-Za-z0-9_.:-]{1,16}$/.test(msg.nic) ? msg.nic : '';
+      return shureScan(nic).then((r) => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'shure-scan', nic, ...r })));
+    }
     if (msg.type === 'iem-detect') { // leer del emisor su modelo, canales, modo y nombres
       const ip = String(msg.ip || '').trim();
       return ws.send(JSON.stringify({ type: 'iem-detect', ip, info: net.isIPv4(ip) ? iemDetect(ip) : null }));

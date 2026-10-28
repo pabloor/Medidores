@@ -11,6 +11,16 @@ El line check guiado podrá comprobar los monitores: "Manda señal al Aux 3" y �
 
 La interfaz ya está preparada (Ajustes → Emisores de IEM Shure y el line check de buses), pero sin comunicación con los emisores: el servidor guarda la configuración en `iem.json` y, con una mesa real, el line check muestra «sin comprobar». Con el simulador de line check (`SIM_LINECHECK=1`), el driver simula lo que recibe cada emisor (`iemInput`). Falta un driver que pida y lea el nivel de entrada de los emisores reales, con lo que salga del sondeo. Ese driver tendrá también que responder a «Leer del emisor» (`iemDetect(ip)` en el servidor) con el modelo, los canales, el modo de cada canal (mono, estéreo o 2 monos) y su nombre: en el sondeo, pon algún canal del ADTQ en 2 monos y otro en estéreo para ver qué parámetro cambia.
 
+## Descubrimiento de los equipos
+
+Ajustes → Emisores de IEM → **Buscar** encuentra los equipos de la red de un adaptador. Hoy lo hace recorriendo la red (pregunta el modelo a cada dirección por TCP 2202). Lo previsto es usar el descubrimiento de Shure, el de Wireless Workbench, en `shureDiscover()` de `server.js`; si no está o no encuentra nada, se sigue recorriendo la red.
+
+Para ver cómo se anuncian, con los equipos encendidos en la red:
+
+    node tools/shure-pruebas/escuchar-descubrimiento.js en9 60
+
+Escucha (sin mandar nada) SLP (239.255.255.253:427), mDNS (224.0.0.251:5353) y el multicast que podría usar Shure (239.255.254.253:8427). Mientras escucha, abre Wireless Workbench y enciende o reinicia un emisor. Guarda los paquetes en la carpeta temporal (`descubrimiento-shure.txt`).
+
 ## Cómo sondearlos
 
 1. Conecta los emisores a la misma red que el Mac y apunta sus IP (menú de red del emisor o Wireless Workbench).

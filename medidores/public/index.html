@@ -629,6 +629,11 @@
     <p class="shure-hint" data-i18n="set.iemHint"></p>
     <ul class="shure-list" id="iemList"></ul>
     <div class="shure-form">
+      <div class="ip"><span data-i18n="iem.scanNic"></span><div class="iemip"><select id="iemNic"></select><button id="iemScan" type="button" data-i18n="iem.scan"></button></div>
+        <small class="shure-hint" id="iemScanMsg"></small></div>
+    </div>
+    <ul class="shure-list" id="iemFound"></ul>
+    <div class="shure-form">
       <div class="ip"><span data-i18n="iem.ip"></span><div class="iemip"><input id="iemIp" inputmode="decimal" placeholder="192.168.0.60" autocomplete="off"><button id="iemRead" type="button" data-i18n="iem.read"></button></div>
         <small class="shure-hint" id="iemDet"></small></div>
       <div class="ip"><span data-i18n="iem.model"></span><select id="iemModel"><option value="P10T" data-i18n="iem.mP10T"></option><option value="ADTD" data-i18n="iem.mADTD"></option><option value="ADTQ" data-i18n="iem.mADTQ"></option></select></div>
@@ -1038,6 +1043,7 @@
       else if (m.type === 'shure') onShure(m);
       else if (m.type === 'iem') onIem(m);
       else if (m.type === 'iem-detect') onIemDetect(m);
+      else if (m.type === 'shure-scan') onShureScan(m);
       else if (m.type === 'nics') onNics(m);
       else if (m.type === 'shure-error') $('shErr').textContent = m.key ? t(m.key, m.p) : m.error;
     };
@@ -1455,7 +1461,7 @@
       + (want && !nics.some((n) => n.name === want) ? `<option value="${esc(want)}">${esc(want)} (${esc(t('sh.nicGone'))})</option>` : '');
     sel.value = want;
   }
-  function onNics(m) { nics = m.list || []; fillNics(); fillSetupNic(); renderShureList(); }
+  function onNics(m) { nics = m.list || []; fillNics(); fillSetupNic(); renderShureList(); fillIemNic(); }
   const askNics = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'nics' })); };
   $('shNic').addEventListener('focus', askNics);
   $('openSettings').addEventListener('click', askNics);
@@ -1581,6 +1587,40 @@
       }
     }
   }
+  // Buscar equipos Shure en la red de un adaptador: la lista de encontrados permite configurar cada emisor con un toque
+  function fillIemNic() {
+    const sel = $('iemNic'), keep = sel.value || store.get('iemNic', '');
+    sel.innerHTML = nics.map((n) => `<option value="${esc(n.name)}">${esc(n.name)}${n.wifi ? ' · wifi' : ''} · ${esc(n.address)}</option>`).join('');
+    if (nics.some((n) => n.name === keep)) sel.value = keep;
+  }
+  $('iemScan').onclick = () => {
+    if (!$('iemNic').value) return;
+    store.set('iemNic', $('iemNic').value);
+    $('iemScan').disabled = true;
+    $('iemScanMsg').textContent = t('iem.scanning');
+    $('iemFound').innerHTML = '';
+    ws.send(JSON.stringify({ type: 'shure-scan', nic: $('iemNic').value }));
+  };
+  function onShureScan(m) {
+    $('iemScan').disabled = false;
+    if (!m.ok) { $('iemScanMsg').textContent = t('iem.scanNoNic'); return; }
+    const devs = m.devices || [], tx = devs.filter((d) => d.kind === 'tx');
+    $('iemScanMsg').textContent = t(devs.length ? 'iem.scanFound' : 'iem.scanNone', { n: tx.length, all: devs.length, scanned: m.scanned })
+      + ' ' + t(m.method === 'discovery' ? 'iem.byDiscovery' : m.method === 'sim' ? 'iem.bySim' : 'iem.byScan'); // cómo se han encontrado
+    $('iemFound').innerHTML = '';
+    for (const d of devs) {
+      const li = document.createElement('li'), saved = iemState.list.some((e) => e.ip === d.ip);
+      li.innerHTML = `<span>${esc(d.model)} ${esc(d.ip)}${d.name ? ` · ${esc(d.name)}` : ''}${d.kind === 'rx' ? ` <small>(${esc(t('iem.isRx'))})</small>` : ''}</span>`
+        + (d.kind === 'tx' ? `<button>${esc(t(saved ? 'iem.edit' : 'iem.setup'))}</button>` : '');
+      const b = li.querySelector('button');
+      if (b) b.onclick = () => { // a la ficha de abajo, ya leída del emisor
+        $('iemIp').value = d.ip; $('iemIp').dispatchEvent(new Event('input'));
+        $('iemRead').click();
+        $('iemIp').scrollIntoView({ block: 'center', behavior: 'smooth' });
+      };
+      $('iemFound').appendChild(li);
+    }
+  }
   $('iemRead').onclick = () => {
     const ip = $('iemIp').value.trim();
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('iemErr').textContent = t('err.ipForm', { ex: '192.168.0.60' }); return; }
@@ -1591,7 +1631,20 @@
     if (m.ip !== $('iemIp').value.trim()) return;
     iemDetected = m.info ? { ip: m.ip, ...m.info } : null;
     $('iemDet').textContent = m.info ? t('iem.detectOk', { model: m.info.model, n: m.info.channels.length }) : t('iem.detectNo');
+    iemPrefill(m.ip);
     fillIemSelects();
+  }
+  // Si el emisor ya estaba guardado, la ficha se rellena con sus buses (y su modelo y modos, si no se han leído del emisor)
+  function iemPrefill(ip) {
+    const e = iemState.list.find((x) => x.ip === ip);
+    if (!e) return;
+    if (!iemDetected) { $('iemModel').value = e.model; fillIemSelects(); }
+    for (let k = 1; k <= 4; k++) {
+      const v = e.map[k];
+      $(`iemC${k}L`).value = !v ? '' : typeof v === 'string' ? v : v.l || '';
+      $(`iemC${k}R`).value = v && typeof v !== 'string' ? v.r || '' : '';
+      if (!iemDetected) $(`iemC${k}M`).value = !v || typeof v === 'string' ? 'mono' : v.dual ? 'dual' : 'stereo';
+    }
   }
   $('iemIp').addEventListener('input', () => { if (iemDetected) { iemDetected = null; $('iemDet').textContent = ''; fillIemSelects(); } });
   function renderIemList() {

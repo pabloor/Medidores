@@ -70,6 +70,12 @@ class Simulator extends EventEmitter {
     if (key === 'bus:5' && this.cue && this.cue.first && this.cue.keys.includes('bus:5')) return -90; // IEM R: no llega al emisor la primera vez
     return this.lastBus[+i] ?? -90;
   }
+  // Equipos Shure que "encuentra" la búsqueda en la red (solo con SIM_LINECHECK)
+  shureScan() {
+    if (!process.env.SIM_LINECHECK) return [];
+    return [{ ip: '192.168.0.50', model: 'AD4D', name: 'RX VOCES' }, { ip: '192.168.0.60', model: 'P10T', name: 'IEM RACK A' },
+      { ip: '192.168.0.61', model: 'ADTQ', name: 'IEM RACK B' }, { ip: '192.168.0.63', model: 'ADTQ', name: 'IEM RACK C' }];
+  }
   // Lo que diría un emisor simulado de su configuración (solo con SIM_LINECHECK). IP acabada en número impar: ADTQ con
   // canales en 2 monos, mono, estéreo y 2 monos; par: P10T con un canal mono y otro estéreo.
   iemDetect(ip) {
