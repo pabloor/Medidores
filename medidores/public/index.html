@@ -306,6 +306,19 @@
   .shure-form button { grid-column: 1 / -1; }
   .shure-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.35; }
   .shure-form .iemc { grid-column: 1 / -1; }
+  .iem-box { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 10px; }
+  .iem-box.add { background: var(--well); }
+  .iem-box.add.editing { border-color: var(--sig); }
+  .iem-h { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .shure-list .iemtxt b { font-weight: 600; }
+  .shure-list .iemtxt small { display: block; font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
+  .iem-step { margin: 10px 0 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .iem-step:first-child { margin-top: 2px; }
+  .iem-box .shure-list li:last-child { border-bottom: 0; }
+  .shure-form .iem-btns { grid-column: 1 / -1; display: flex; gap: 6px; }
+  .shure-form .iem-btns button { flex: 1; grid-column: auto; }
+  .shure-form .iem-btns button[hidden] { display: none; }
+  .shure-form .iem-btns button.primary { background: var(--sig); border-color: var(--sig); color: #07130c; font-weight: 600; }
   .shure-form .iemip { display: flex; gap: 6px; align-items: flex-end; }
   .shure-form .iemip input { flex: 1; }
   .shure-form .iemip button { grid-column: auto; white-space: nowrap; }
@@ -627,12 +640,22 @@
   <div id="iemSettings" hidden><!-- emisores de IEM: para el line check; no controlan la mesa, así que se ven también sin control de mesa -->
     <p class="sub" data-i18n="set.iem"></p>
     <p class="shure-hint" data-i18n="set.iemHint"></p>
-    <ul class="shure-list" id="iemList"></ul>
-    <div class="shure-form">
-      <div class="ip"><span data-i18n="iem.scanNic"></span><div class="iemip"><select id="iemNic"></select><button id="iemScan" type="button" data-i18n="iem.scan"></button></div>
-        <small class="shure-hint" id="iemScanMsg"></small></div>
+    <div class="iem-box">
+      <p class="iem-h" data-i18n="iem.added"></p>
+      <ul class="shure-list" id="iemList"></ul>
+      <p class="shure-hint" id="iemEmpty" data-i18n="iem.noneYet"></p>
     </div>
-    <ul class="shure-list" id="iemFound"></ul>
+    <div class="iem-box add" id="iemAddBox">
+      <p class="iem-h" id="iemFormTitle"></p>
+      <div id="iemSearch">
+        <p class="iem-step" data-i18n="iem.step1"></p>
+        <div class="shure-form">
+          <div class="ip"><div class="iemip"><select id="iemNic"></select><button id="iemScan" type="button" data-i18n="iem.scan"></button></div>
+            <small class="shure-hint" id="iemScanMsg"></small></div>
+        </div>
+        <ul class="shure-list" id="iemFound"></ul>
+        <p class="iem-step" data-i18n="iem.step2"></p>
+      </div>
     <div class="shure-form">
       <div class="ip"><span data-i18n="iem.ip"></span><div class="iemip"><input id="iemIp" inputmode="decimal" placeholder="192.168.0.60" autocomplete="off"><button id="iemRead" type="button" data-i18n="iem.read"></button></div>
         <small class="shure-hint" id="iemDet"></small></div>
@@ -645,9 +668,10 @@
         <div class="lr"><div class="cell"><small id="iemC3La"></small><select id="iemC3L"></select></div><div class="cell"><small id="iemC3Ra"></small><select id="iemC3R"></select></div></div></div>
       <div class="iemc"><span class="iemch" data-n="4"></span><select id="iemC4M" class="mode"></select>
         <div class="lr"><div class="cell"><small id="iemC4La"></small><select id="iemC4L"></select></div><div class="cell"><small id="iemC4Ra"></small><select id="iemC4R"></select></div></div></div>
-      <button id="iemAdd" data-i18n="iem.add"></button>
+      <div class="iem-btns"><button id="iemCancel" type="button" data-i18n="iem.cancel" hidden></button><button id="iemAdd" class="primary"></button></div>
     </div>
     <p class="error" id="iemErr"></p>
+    </div>
   </div>
   <div class="actions">
     <button id="changeMixer" data-i18n="btn.changeMixer"></button>
@@ -1649,7 +1673,22 @@
       if (!iemDetected) $(`iemC${k}M`).value = !v || typeof v === 'string' ? 'mono' : v.dual ? 'dual' : 'stereo';
     }
   }
-  $('iemIp').addEventListener('input', () => { if (iemDetected) { iemDetected = null; $('iemDet').textContent = ''; fillIemSelects(); } });
+  $('iemIp').addEventListener('input', () => { if (iemDetected) { iemDetected = null; $('iemDet').textContent = ''; fillIemSelects(); } iemFormMode(); });
+  // La ficha de abajo añade un emisor nuevo o edita uno ya añadido (si su IP está en la lista)
+  function iemFormMode() {
+    const ip = $('iemIp').value.trim(), editing = iemState.list.some((e) => e.ip === ip);
+    $('iemFormTitle').textContent = editing ? t('iem.editTitle', { ip }) : t('iem.addTitle');
+    $('iemAdd').textContent = t(editing ? 'iem.save' : 'iem.add');
+    $('iemCancel').hidden = !editing;
+    $('iemSearch').hidden = editing; // al editar no hace falta buscar
+    $('iemAddBox').classList.toggle('editing', editing);
+  }
+  function iemReset() {
+    iemDetected = null; $('iemDet').textContent = ''; $('iemErr').textContent = '';
+    $('iemIp').value = ''; for (let k = 1; k <= 4; k++) { $(`iemC${k}L`).value = ''; $(`iemC${k}R`).value = ''; $(`iemC${k}M`).value = 'mono'; }
+    fillIemSelects(); iemFormMode();
+  }
+  $('iemCancel').onclick = iemReset;
   function renderIemList() {
     const label = (key) => { const st = strips.find((x) => `${x.gid}:${x.idx}` === key); return st ? st.label : key; };
     $('iemList').innerHTML = '';
@@ -1657,7 +1696,8 @@
       const li = document.createElement('li');
       const maps = Object.entries(e.map).map(([ch, v]) => (e.names && e.names[ch] ? `${e.names[ch]}: ` : '') + (typeof v === 'string' ? `${ch}←${label(v)}`
         : v.dual ? [v.l && `${ch}A←${label(v.l)}`, v.r && `${ch}B←${label(v.r)}`].filter(Boolean).join(', ') : `${ch}←${label(v.l)} + ${label(v.r)}`)).join(', ');
-      li.innerHTML = `<span>${esc(e.model)} ${esc(e.ip)} · ${esc(maps)}</span><i class="tag">${esc(t(iemState.live ? 'iem.sim' : 'iem.preview'))}</i><button class="edit">${t('iem.edit')}</button><button class="del">${t('sh.remove')}</button>`;
+      li.innerHTML = `<span class="iemtxt"><b>${esc(e.model)} ${esc(e.ip)}</b> <i class="tag">${esc(t(iemState.live ? 'iem.sim' : 'iem.preview'))}</i><small>${esc(maps)}</small></span>`
+        + `<button class="edit">${t('iem.edit')}</button><button class="del">${t('sh.remove')}</button>`;
       li.querySelector('.edit').onclick = () => iemOpen(e.ip);
       li.querySelector('.del').onclick = () => {
         if (!confirm(t('iem.confirmRemove', { ip: e.ip }))) return;
@@ -1665,6 +1705,8 @@
       };
       $('iemList').appendChild(li);
     });
+    $('iemEmpty').hidden = iemState.list.length > 0;
+    iemFormMode();
   }
   function onIem(m) { iemState = { ...iemState, ...m }; $('iemErr').textContent = ''; fillIemSelects(); renderIemList(); }
   $('iemModel').onchange = fillIemSelects;
@@ -1683,8 +1725,9 @@
     const names = {};
     if (iemDetected && iemDetected.ip === ip) for (const c of iemDetected.channels) if (map[c.ch] && c.name) names[c.ch] = c.name;
     ws.send(JSON.stringify({ type: 'iem-set', list: [...iemState.list.filter((e) => e.ip !== ip), { ip, model, map, names }] }));
-    iemDetected = null; $('iemDet').textContent = '';
-    $('iemIp').value = ''; for (let k = 1; k <= 4; k++) { $(`iemC${k}L`).value = ''; $(`iemC${k}R`).value = ''; $(`iemC${k}M`).value = 'mono'; iemModeView(k); }
+    toast(t(iemState.list.some((e) => e.ip === ip) ? 'iem.saved' : 'iem.addedOk', { ip }));
+    iemReset();
+    $('iemList').scrollIntoView({ block: 'center', behavior: 'smooth' });
   };
 
   // Marcas de la escala, por orden de importancia: si el fader es bajo, solo caben las primeras.
