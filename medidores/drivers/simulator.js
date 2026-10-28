@@ -60,12 +60,14 @@ class Simulator extends EventEmitter {
     this.cue = keys.length ? { keys, first: n === 1, at: Date.now() } : null;
   }
   // Emisores de IEM simulados (solo con SIM_LINECHECK): lo que recibe el emisor conectado a un bus es el nivel de ese bus,
-  // salvo el de Mon 2, al que la primera vez no le llega nada (cable o Dante). Ver iem.json en el servidor.
-  iemInput(key) {
+  // salvo el de Mon 2, al que la primera vez no le llega nada (cable o Dante), y el lado R de IEM L/R, que la primera vez
+  // tampoco llega (al emisor solo le llega un lado). Ver iem.json en el servidor.
+  iemInput(key) { // (key, entrada del emisor): el simulador solo necesita el bus
     if (!process.env.SIM_LINECHECK) return null;
     const [g, i] = key.split(':');
     if (g !== 'bus' || !this.lastBus) return null;
     if (key === 'bus:1' && this.cue && this.cue.first && this.cue.keys.includes('bus:1')) return -90;
+    if (key === 'bus:5' && this.cue && this.cue.first && this.cue.keys.includes('bus:5')) return -90; // IEM R: no llega al emisor la primera vez
     return this.lastBus[+i] ?? -90;
   }
   // Tiras que suenan cuando el técnico da señal a `keys` (con su fallo, si es la primera vez)

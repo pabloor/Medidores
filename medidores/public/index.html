@@ -305,7 +305,9 @@
   .shure-form select { display: block; width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: var(--stage); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; margin-top: 3px; }
   .shure-form button { grid-column: 1 / -1; }
   .shure-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.35; }
+  .shure-form .iemc { grid-column: 1 / -1; }
   .shure-form .iemc[hidden] { display: none; }
+  .shure-form .iemc .lr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .shure-list .tag { font-size: 12px; color: var(--warm); border: 1px solid var(--warm); border-radius: 6px; padding: 1px 6px; }
   #settings select { font: inherit; font-size: 16px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
   #settings .sub { margin: 16px 0 0; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
@@ -622,10 +624,10 @@
     <div class="shure-form">
       <div class="ip"><span data-i18n="iem.ip"></span><input id="iemIp" inputmode="decimal" placeholder="192.168.0.60" autocomplete="off"></div>
       <div class="ip"><span data-i18n="iem.model"></span><select id="iemModel"><option value="P10T">PSM 1000 · P10T</option><option value="ADTD">Axient Digital PSM · ADTD</option><option value="ADTQ">Axient Digital PSM · ADTQ</option></select></div>
-      <div class="iemc"><span class="iemch" data-n="1"></span><select id="iemC1"></select></div>
-      <div class="iemc"><span class="iemch" data-n="2"></span><select id="iemC2"></select></div>
-      <div class="iemc"><span class="iemch" data-n="3"></span><select id="iemC3"></select></div>
-      <div class="iemc"><span class="iemch" data-n="4"></span><select id="iemC4"></select></div>
+      <div class="iemc"><span class="iemch" data-n="1"></span><div class="lr"><select id="iemC1L"></select><select id="iemC1R"></select></div></div>
+      <div class="iemc"><span class="iemch" data-n="2"></span><div class="lr"><select id="iemC2L"></select><select id="iemC2R"></select></div></div>
+      <div class="iemc"><span class="iemch" data-n="3"></span><div class="lr"><select id="iemC3L"></select><select id="iemC3R"></select></div></div>
+      <div class="iemc"><span class="iemch" data-n="4"></span><div class="lr"><select id="iemC4L"></select><select id="iemC4R"></select></div></div>
       <button id="iemAdd" data-i18n="iem.add"></button>
     </div>
     <p class="error" id="iemErr"></p>
@@ -1493,13 +1495,24 @@
   // --- Emisores de IEM Shure (en preparación: aún no se comunica con ellos). Cada canal del emisor recibe un bus de la mesa.
   let iemState = { list: [], models: { P10T: 2, ADTD: 2, ADTQ: 4 }, live: false };
   const iemOutStrips = () => strips.filter((st) => st.gid !== 'ch');
+  // Cada canal del emisor tiene entrada estéreo: L y R. R puede ser "= L (mono)" para una mezcla mono.
   function fillIemSelects() {
-    const opts = `<option value="">${esc(t('iem.none'))}</option>` + iemOutStrips().map((st) => `<option value="${esc(st.gid)}:${st.idx}">${esc(st.label)}</option>`).join('');
+    const list = iemOutStrips().map((st) => `<option value="${esc(st.gid)}:${st.idx}">${esc(st.label)}</option>`).join('');
     const n = iemState.models[$('iemModel').value] || 2;
     for (let k = 1; k <= 4; k++) {
-      const sel = $('iemC' + k), keep = sel.value;
-      sel.innerHTML = opts; sel.value = keep;
-      sel.parentElement.hidden = k > n;
+      for (const [side, first] of [['L', t('iem.none')], ['R', t('iem.mono')]]) {
+        const sel = $(`iemC${k}${side}`), keep = sel.value;
+        sel.innerHTML = `<option value="">${esc(first)}</option>${list}`; sel.value = keep;
+      }
+      $(`iemC${k}L`).closest('.iemc').hidden = k > n;
+      // al elegir L, R se rellena con su pareja: la que dice la mesa (bus enlazado en estéreo) o, si no, la tira
+      // siguiente cuando los nombres lo indican ("IEM L" → "IEM R", "Mon 1L" → "Mon 1R")
+      $(`iemC${k}L`).onchange = () => {
+        const v = $(`iemC${k}L`).value, pr = (lcState.autoPairs || []).find((p) => p[0] === v);
+        const [g, i] = v.split(':'), next = strips.find((x) => x.gid === g && x.idx === Number(i) + 1), cur = strips.find((x) => x.gid === g && x.idx === Number(i));
+        const byName = cur && next && /L$/i.test(cur.label.trim()) && /R$/i.test(next.label.trim()) ? `${g}:${next.idx}` : '';
+        if (!$(`iemC${k}R`).value && (pr || byName)) $(`iemC${k}R`).value = pr ? pr[1] : byName;
+      };
     }
   }
   function renderIemList() {
@@ -1507,7 +1520,7 @@
     $('iemList').innerHTML = '';
     iemState.list.forEach((e, k) => {
       const li = document.createElement('li');
-      const maps = Object.entries(e.map).map(([ch, key]) => `${ch}←${label(key)}`).join(', ');
+      const maps = Object.entries(e.map).map(([ch, v]) => `${ch}←${typeof v === 'string' ? label(v) : `${label(v.l)} + ${label(v.r)}`}`).join(', ');
       li.innerHTML = `<span>${esc(e.model)} ${esc(e.ip)} · ${esc(maps)}</span><i class="tag">${esc(t(iemState.live ? 'iem.sim' : 'iem.preview'))}</i><button>${t('sh.remove')}</button>`;
       li.querySelector('button').onclick = () => {
         if (!confirm(t('iem.confirmRemove', { ip: e.ip }))) return;
@@ -1523,10 +1536,13 @@
     const ip = $('iemIp').value.trim(), model = $('iemModel').value;
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { $('iemErr').textContent = t('err.ipForm', { ex: '192.168.0.60' }); return; }
     const map = {};
-    for (let k = 1; k <= (iemState.models[model] || 2); k++) if ($('iemC' + k).value) map[k] = $('iemC' + k).value;
+    for (let k = 1; k <= (iemState.models[model] || 2); k++) {
+      const l = $(`iemC${k}L`).value, r = $(`iemC${k}R`).value;
+      if (l) map[k] = r && r !== l ? { l, r } : l; // sin R (o igual que L): mezcla mono
+    }
     if (!Object.keys(map).length) { $('iemErr').textContent = t('iem.errNone'); return; }
     ws.send(JSON.stringify({ type: 'iem-set', list: [...iemState.list.filter((e) => e.ip !== ip), { ip, model, map }] }));
-    $('iemIp').value = ''; for (let k = 1; k <= 4; k++) $('iemC' + k).value = '';
+    $('iemIp').value = ''; for (let k = 1; k <= 4; k++) { $(`iemC${k}L`).value = ''; $(`iemC${k}R`).value = ''; }
   };
 
   // Marcas de la escala, por orden de importancia: si el fader es bajo, solo caben las primeras.
@@ -2196,13 +2212,14 @@
   const lcFrom = (r) => (r.crossFrom || []).filter((l) => !(r.swapped && l === r.cross));
   // Texto de estado de un paso: el de la mesa y, en un bus con emisor de IEM, el del emisor
   function lcStepText(r) {
-    const iem = !r.iem ? '' : r.iem.state === 'nosignal' ? `⚠ ${t(r.iem.to ? 'lc.iemNoTo' : 'lc.iemNoShort', { to: r.iem.to })}`
+    const iem = !r.iem ? '' : r.iem.state === 'side' ? `⚠ ${t('lc.iemSideShort', { ch: r.iem.missing })}`
+      : r.iem.state === 'nosignal' ? `⚠ ${t(r.iem.to ? 'lc.iemNoTo' : 'lc.iemNoShort', { to: r.iem.to })}`
       : r.iem.state === 'ok' ? t('lc.iemOkShort') : r.iem.state === 'unchecked' ? t('lc.iemUncheckedShort') : '';
-    return [lcStepTextBase(r), r.state === 'ok' || (r.iem && r.iem.state === 'nosignal') ? iem : ''].filter(Boolean).join(' · ');
+    return [lcStepTextBase(r), r.state === 'ok' || (r.iem && /^(nosignal|side)$/.test(r.iem.state)) ? iem : ''].filter(Boolean).join(' · ');
   }
   function lcStepTextBase(r) {
     const from = lcFrom(r).length ? `⚠ ${t('lc.crossFrom', { list: lcFrom(r).join(', ') })}` : ''; // por esta tira entró la señal de otro paso
-    const fixed = r.fixed ? (r.fixed.swapped ? t('lc.fixedSwapped') : r.fixed.cross ? t('lc.fixedCross', { ch: r.fixed.cross }) : r.fixed.missing ? t('lc.fixedMissing', { ch: r.fixed.missing }) : r.fixed.iem ? t('lc.fixedIem') : '') : '';
+    const fixed = r.fixed ? (r.fixed.swapped ? t('lc.fixedSwapped') : r.fixed.cross ? t('lc.fixedCross', { ch: r.fixed.cross }) : r.fixed.missing ? t('lc.fixedMissing', { ch: r.fixed.missing }) : r.fixed.iem ? t(r.fixed.iem === 'side' ? 'lc.fixedIemSide' : 'lc.fixedIem') : '') : '';
     if (r.state === 'ok') return [`✓ ${fmtNum(r.peak)} dB`, fixed, r.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', r.also.length ? `⚠ ${t('lc.also', { list: r.also.join(', ') })}` : '', from].filter(Boolean).join(' · ');
     const warn = r.both ? `⚠ ${t(r.side === 'L' ? 'lc.bothL' : 'lc.bothR')}`
       : r.swapped ? `⚠ ${t('lc.swapped', { ch: r.cross })}`
@@ -2256,13 +2273,14 @@
       const txt = lcStepText(cur);
       $('lcState').textContent = txt || t(cur.side ? (cur.side === 'L' ? 'lc.waitLeft' : 'lc.waitRight') : 'lc.waiting');
       $('lcState').className = `state${cur.state === 'ok' ? ' ok' : txt ? ' warn' : ''}`;
-      $('lcNow').classList.toggle('alert', !!(cur.cross || cur.missing || cur.both || (cur.iem && cur.iem.state === 'nosignal'))); // tarjeta en naranja mientras haya un problema
+      $('lcNow').classList.toggle('alert', !!(cur.cross || cur.missing || cur.both || (cur.iem && /^(nosignal|side)$/.test(cur.iem.state)))); // tarjeta en naranja mientras haya un problema
       $('lcIem').hidden = !cur.iem;
       if (cur.iem) {
         const st = cur.iem.state, em = cur.iem.label;
-        $('lcIem').textContent = st === 'ok' ? t('lc.iemCardOk', { em }) : st === 'nosignal' ? t('lc.iemCardNo', { em }) + (cur.iem.to ? ` · ${t('lc.iemNoTo', { to: cur.iem.to })}` : '')
+        $('lcIem').textContent = st === 'ok' ? t('lc.iemCardOk', { em }) : st === 'side' ? t('lc.iemCardSide', { em, ch: cur.iem.missing })
+          : st === 'nosignal' ? t('lc.iemCardNo', { em }) + (cur.iem.to ? ` · ${t('lc.iemNoTo', { to: cur.iem.to })}` : '')
           : st === 'unchecked' ? t('lc.iemCardUnchecked', { em }) : t('lc.iemWait', { em });
-        $('lcIem').className = `iem ${st === 'ok' ? 'ok' : st === 'nosignal' ? 'warn' : 'off'}`;
+        $('lcIem').className = `iem ${st === 'ok' ? 'ok' : st === 'nosignal' || st === 'side' ? 'warn' : 'off'}`;
       }
       const nxt = rows.find((r, k) => k > lcState.cur && r.state === 'pending');
       $('lcNext').textContent = nxt ? t('lc.next', { name: lcLabelOf(nxt) }) : t('lc.last');
@@ -2295,7 +2313,7 @@
     const onlyPending = $('lcPending').checked;
     rows.forEach((row, k) => {
       const r = lcRows[k], isCur = lcState.active && guided && k === lcState.cur;
-      const warn = !!(row.cross || row.missing || row.both || row.unbalanced || row.also.length || lcFrom(row).length || (row.iem && row.iem.state === 'nosignal'));
+      const warn = !!(row.cross || row.missing || row.both || row.unbalanced || row.also.length || lcFrom(row).length || (row.iem && /^(nosignal|side)$/.test(row.iem.state)));
       r.li.dataset.label = row.label.split(' + ')[0];
       r.nm.textContent = lcLabelOf(row);
       r.bar.style.width = `${Math.round(pos(lcState.active ? levels[row.keys[0]] ?? -90 : -90) * 100)}%`;
@@ -2333,9 +2351,10 @@
     if (r.unbalanced && r.peaks && r.peaks.length === 2) add(t('lc.pUnbalanced'), t('lc.infoUnbalanced', { db: Math.abs(r.peaks[0] - r.peaks[1]).toFixed(1), l: fmtNum(r.peaks[0]), r: fmtNum(r.peaks[1]) }));
     if (r.noise) add(t('lc.pNoise'), t('lc.infoNoise', { ch: (r.noisy || []).length ? r.noisy.join(', ') : r.label }));
     if (r.iem && r.iem.state === 'nosignal') add(t('lc.pIemNo'), t('lc.infoIemNo', { em: r.iem.label }) + (r.iem.to ? ' ' + t('lc.infoIemNoTo', { to: r.iem.to }) : ''));
+    if (r.iem && r.iem.state === 'side') add(t('lc.pIemSide'), t('lc.infoIemSide', { em: r.iem.label, ch: r.iem.missing }));
     if (r.iem && r.iem.state === 'ok') add(t('lc.pIemOk'), t('lc.infoIemOk', { em: r.iem.label }), false);
     if (r.iem && r.iem.state === 'unchecked') add(t('lc.pIemUnchecked'), t('lc.infoIemUnchecked', { em: r.iem.label }), false);
-    if (r.fixed) add(t('lc.pFixed'), r.fixed.swapped ? t('lc.fixedSwapped') : r.fixed.cross ? t('lc.fixedCross', { ch: r.fixed.cross }) : r.fixed.missing ? t('lc.fixedMissing', { ch: r.fixed.missing }) : t('lc.fixedIem'), false);
+    if (r.fixed) add(t('lc.pFixed'), r.fixed.swapped ? t('lc.fixedSwapped') : r.fixed.cross ? t('lc.fixedCross', { ch: r.fixed.cross }) : r.fixed.missing ? t('lc.fixedMissing', { ch: r.fixed.missing }) : t(r.fixed.iem === 'side' ? 'lc.fixedIemSide' : 'lc.fixedIem'), false);
     return out;
   }
   let lcInfoStep = -1;

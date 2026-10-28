@@ -209,7 +209,9 @@ function startShure() {
 // EN PREPARACIÓN: todavía no se conecta con los emisores (falta confirmar su protocolo con equipos reales; ver
 // tools/shure-pruebas). Se guardan en iem.json y el line check los muestra: con una mesa real, "sin comprobar";
 // con el simulador (SIM_LINECHECK), el driver simula lo que recibiría cada emisor (iemInput).
-// iem.json: [{ "ip": "192.168.0.60", "model": "P10T", "map": { "1": "bus:0", "2": "bus:1" } }]
+// Cada canal de emisor tiene entrada estéreo: map[canal] = "bus:0" (mezcla mono: el mismo bus a L y R)
+// o { "l": "bus:4", "r": "bus:5" } (mezcla estéreo).
+// iem.json: [{ "ip": "192.168.0.60", "model": "P10T", "map": { "1": "bus:0", "2": { "l": "bus:4", "r": "bus:5" } } }]
 const IEM_FILE = path.join(DATA_DIR, 'iem.json');
 const IEM_MODELS = { P10T: 2, ADTD: 2, ADTQ: 4 }; // canales de cada modelo
 let iemList = [];
@@ -222,22 +224,35 @@ function sanitizeIem(list) {
     if (!net.isIPv4(ip)) return null;
     const model = IEM_MODELS[e.model] ? e.model : 'P10T';
     const map = {};
-    for (const [ch, key] of Object.entries(e.map || {})) {
-      if (!/^[1-4]$/.test(ch) || Number(ch) > IEM_MODELS[model] || !/^[a-z]+:\d{1,3}$/.test(String(key))) continue;
-      map[ch] = String(key);
+    const okKey = (k) => /^[a-z]+:\d{1,3}$/.test(String(k));
+    for (const [ch, v] of Object.entries(e.map || {})) {
+      if (!/^[1-4]$/.test(ch) || Number(ch) > IEM_MODELS[model]) continue;
+      if (typeof v === 'string' && okKey(v)) map[ch] = v;
+      else if (v && okKey(v.l)) map[ch] = v.r && okKey(v.r) && v.r !== v.l ? { l: String(v.l), r: String(v.r) } : String(v.l);
     }
     if (Object.keys(map).length) out.push({ ip, model, map });
   }
   return out;
 }
-// tira (p. ej. "bus:0") -> { ip, model, ch, label } del canal de emisor que la recibe
+// tira (p. ej. "bus:0") -> { ip, model, ch, side, label } de la entrada de emisor que la recibe.
+// side: null (mezcla mono, entra por L y R), 'L' o 'R' (mezcla estéreo).
 function iemByKey() {
   const m = new Map();
-  for (const e of iemList) for (const [ch, key] of Object.entries(e.map)) m.set(key, { ip: e.ip, model: e.model, ch: Number(ch), label: `${e.model} ${e.ip} · ${ch}` });
+  for (const e of iemList) for (const [ch, v] of Object.entries(e.map)) {
+    const base = { ip: e.ip, model: e.model, ch: Number(ch) };
+    if (typeof v === 'string') m.set(v, { ...base, side: null, label: `${e.model} ${e.ip} · ${ch}` });
+    else { m.set(v.l, { ...base, side: 'L', label: `${e.model} ${e.ip} · ${ch} L` }); m.set(v.r, { ...base, side: 'R', label: `${e.model} ${e.ip} · ${ch} R` }); }
+  }
   return m;
 }
-// Nivel que recibe el emisor de esa tira (dB), o null si no se sabe (aún no hay comunicación con emisores reales)
-const iemInput = (key) => (driver && typeof driver.iemInput === 'function' ? driver.iemInput(key) : null);
+// Etiqueta de los emisores de un paso: los dos lados de un mismo canal se juntan ("ADTQ 192.168.0.61 · 3 L+R")
+function iemLabel(keys) {
+  const m = iemByKey(), es = keys.map((k) => m.get(k)).filter(Boolean);
+  if (es.length === 2 && es[0].ip === es[1].ip && es[0].ch === es[1].ch && es[0].side && es[1].side) return `${es[0].model} ${es[0].ip} · ${es[0].ch} L+R`;
+  return [...new Set(es.map((e) => e.label))].join(' + ');
+}
+// Nivel que recibe el emisor en la entrada de esa tira (dB), o null si no se sabe (aún no hay comunicación con emisores reales)
+const iemInput = (key) => (driver && typeof driver.iemInput === 'function' ? driver.iemInput(key, iemByKey().get(key)) : null);
 const iemLive = () => !!(driver && typeof driver.iemInput === 'function' && process.env.SIM_LINECHECK); // hoy solo el simulador
 const iemMsg = () => ({ type: 'iem', list: iemList, models: IEM_MODELS, live: iemLive() });
 
@@ -568,7 +583,7 @@ function lcCleanPairs(pairs, keys) {
 // side/pair: paso de un solo lado de un par estéreo ('L' o 'R') cuando se comprueban por separado; pair = las dos tiras del par.
 const lcNewStep = (keys, side = null, pair = null) => ({ keys, side, pair, state: 'pending', doneAt: 0, cross: null, crossAt: 0, swapped: false, both: false,
   also: new Set(), missing: null, missingTo: null, unbalanced: false, fixed: null,
-  iem: null, iemTo: null, iemBad: false, iemHits: 0, consoleOkAt: 0, wasCross: null, wasSwapped: false }); // iem: comprobación del emisor de IEM del bus (null | 'ok' | 'nosignal' | 'unchecked')
+  iem: null, iemTo: null, iemMissing: null, iemBad: false, iemHits: 0, consoleOkAt: 0, wasCross: null, wasSwapped: false }); // iem: comprobación del emisor de IEM del bus (null | 'ok' | 'nosignal' | 'unchecked')
 function lcStart(opts = {}) {
   if (!state.layout) return;
   // Tiras elegidas, en el orden en que llegan (es el orden del guiado). Sin elección: todas las entradas.
@@ -604,7 +619,7 @@ function lcGoto(k, fresh = false) {
   const st = lc.steps[lc.cur];
   if (st) {
     Object.assign(st, lcNewStep(st.keys, st.side, st.pair), fresh ? {} : { cross: st.cross, swapped: st.swapped, missing: st.missing, missingTo: st.missingTo, fixed: st.fixed,
-      iem: st.iem === 'nosignal' ? 'nosignal' : null, iemTo: st.iemTo, iemBad: st.iemBad },
+      iem: st.iem === 'nosignal' || st.iem === 'side' ? st.iem : null, iemTo: st.iemTo, iemMissing: st.iemMissing, iemBad: st.iemBad },
       { visits: (st.visits || 0) + 1 });
     for (const x of st.keys) { const it = lc.byKey.get(x); if (it) Object.assign(it, { ok: false, peak: -90, above: 0 }); }
   }
@@ -706,13 +721,16 @@ function lcGuided(now) {
   else if (ems.length && consoleOk && st.state !== 'ok') {
     const got = ems.every((k) => (iemInput(k) ?? -90) >= P.signal);
     st.iemHits = got ? st.iemHits + 1 : 0;
-    if (st.iemHits >= LC_HITS) st.iem = 'ok';
+    if (st.iemHits >= LC_HITS) { st.iem = 'ok'; st.iemMissing = null; st.iemTo = null; }
     else {
       iemOk = false;
       if (!st.consoleOkAt) st.consoleOkAt = now;
-      if (now - st.consoleOkAt >= crossMs) { // sale de la mesa y no llega: ¿llega a otro emisor?
-        st.iem = 'nosignal'; st.iemBad = true;
-        st.iemTo = [...iemMap.keys()].find((k) => !st.keys.includes(k) && (iemInput(k) ?? -90) >= P.signal) || null;
+      if (now - st.consoleOkAt >= crossMs) {
+        // sale de la mesa y no llega: a ningún lado ('nosignal', ¿llega a otro emisor?) o solo a uno ('side')
+        const missing = ems.filter((k) => (iemInput(k) ?? -90) < P.signal);
+        st.iem = missing.length < ems.length ? 'side' : 'nosignal'; st.iemBad = st.iem;
+        st.iemMissing = st.iem === 'side' ? missing : null;
+        st.iemTo = st.iem === 'nosignal' ? [...iemMap.keys()].find((k) => !st.keys.includes(k) && (iemInput(k) ?? -90) >= P.signal) || null : null;
         if (!st.crossAt) st.crossAt = now;
       }
     }
@@ -723,7 +741,7 @@ function lcGuided(now) {
     if (st.state !== 'ok') {
       // había un problema y ya llega bien: queda anotado
       const cross = st.cross || st.wasCross, swapped = st.cross ? st.swapped : !!st.wasSwapped;
-      if (cross || st.missing != null || st.iemBad) st.fixed = { cross, swapped, missing: st.missing, iem: !!st.iemBad };
+      if (cross || st.missing != null || st.iemBad) st.fixed = { cross, swapped, missing: st.missing, iem: st.iemBad || false }; // iem: 'nosignal' | 'side'
       st.state = 'ok'; st.doneAt = now; st.cross = null; st.swapped = false; st.missing = null; st.missingTo = null;
       st.unbalanced = sides.length === 2 && Math.abs(sides[0].peak - sides[1].peak) > P.stereo;
       for (const k of st.keys) { const it = lc.byKey.get(k); if (it) it.ok = true; }
@@ -766,12 +784,13 @@ function lcRows(src = lc) {
       cross: (s.cross || []).map(lcLabel).join(', '), also: [...s.also].map(lcLabel), missing: s.missing != null ? lcLabel(s.missing) : '', unbalanced: s.unbalanced,
       noise: s.keys.some((k) => (byKey.get(k) || {}).noise), crossFrom: [],
       noisy: s.keys.length > 1 ? s.keys.filter((k) => (byKey.get(k) || {}).noise).map(lcLabel) : [], // en un par, qué lado tiene el ruido
-      fixed: s.fixed ? { cross: (s.fixed.cross || []).map(lcLabel).join(', '), swapped: !!s.fixed.swapped, missing: s.fixed.missing != null ? lcLabel(s.fixed.missing) : '', iem: !!s.fixed.iem } : null,
+      fixed: s.fixed ? { cross: (s.fixed.cross || []).map(lcLabel).join(', '), swapped: !!s.fixed.swapped, missing: s.fixed.missing != null ? lcLabel(s.fixed.missing) : '', iem: s.fixed.iem || false } : null,
       iem: (() => { // emisor de IEM de este bus (si tiene)
         const m = iemByKey(), k = s.keys.find((x) => m.has(x));
         if (!k) return null;
         const to = s.iemTo && m.get(s.iemTo);
-        return { label: m.get(k).label, state: s.iem || (iemLive() ? 'pending' : 'unchecked'), to: to ? `${to.label} (${lcLabel(s.iemTo)})` : '' };
+        return { label: iemLabel(s.keys), state: s.iem || (iemLive() ? 'pending' : 'unchecked'), to: to ? `${to.label} (${lcLabel(s.iemTo)})` : '',
+          missing: (s.iemMissing || []).map(lcLabel).join(', ') };
       })(),
     }));
     // La tira por la que entró la señal de otro paso también se marca ("recibe la señal de…")
@@ -808,7 +827,7 @@ function lcWrite() {
     mixer: lcMixerId(), mode: lc.mode, cfg: lc.cfg, startedAt: lc.startedAt, finishedAt: lc.finishedAt || 0, active: lc.active, cur: lc.cur, labels,
     items: lc.items.map((it) => ({ k: it.k, ok: it.ok, peak: it.peak, noise: it.noise })),
     steps: lc.steps.map((s) => ({ keys: s.keys, side: s.side, pair: s.pair, state: s.state, cross: s.cross, swapped: s.swapped, also: [...s.also], missing: s.missing,
-      missingTo: s.missingTo, unbalanced: s.unbalanced, fixed: s.fixed, iem: s.iem, iemTo: s.iemTo, iemBad: s.iemBad })),
+      missingTo: s.missingTo, unbalanced: s.unbalanced, fixed: s.fixed, iem: s.iem, iemTo: s.iemTo, iemMissing: s.iemMissing, iemBad: s.iemBad })),
   } : null;
   const hist = lc.items.length && !lc.active ? [...lcHistory.filter((h) => h.t !== lc.startedAt), lcSummary()].slice(-LC_HISTORY) : lcHistory;
   try { fs.writeFileSync(LC_FILE, JSON.stringify({ current, history: hist })); } catch (e) { console.error('No se pudo guardar linecheck.json:', e.message); }
@@ -823,7 +842,7 @@ function lcRestore() {
   lc.byKey = new Map(lc.items.map((it) => [it.k, it]));
   lc.steps = (f.steps || []).map((s) => ({ ...lcNewStep(s.keys, s.side || null, s.pair || null), state: s.state, cross: s.cross == null ? null : [].concat(s.cross),
     swapped: !!s.swapped, also: new Set(s.also || []), missing: s.missing, missingTo: s.missingTo || null, unbalanced: !!s.unbalanced, fixed: s.fixed || null,
-    iem: s.iem || null, iemTo: s.iemTo || null, iemBad: !!s.iemBad }));
+    iem: s.iem || null, iemTo: s.iemTo || null, iemMissing: s.iemMissing || null, iemBad: s.iemBad || false }));
 }
 
 function lcPayload() {
@@ -854,10 +873,11 @@ function lcCsv() {
     const warns = [r.swapped ? `entra por el otro lado (${r.cross}): ¿izquierda y derecha invertidas?` : r.cross && `la señal entra por ${r.cross}`,
       r.crossFrom && r.crossFrom.length && `recibe la señal de ${r.crossFrom.join(', ')}`,
       r.missing && `falta ${r.missing}${r.missingTo ? ` (¿entra por ${r.missingTo}?)` : ''}`, r.unbalanced && 'lados con niveles distintos',
-      r.fixed && (r.fixed.swapped ? 'corregido: lados invertidos' : r.fixed.cross ? `corregido: entraba por ${r.fixed.cross}` : r.fixed.missing ? `corregido: faltaba ${r.fixed.missing}` : r.fixed.iem ? 'corregido: no llegaba al emisor' : ''),
+      r.fixed && (r.fixed.swapped ? 'corregido: lados invertidos' : r.fixed.cross ? `corregido: entraba por ${r.fixed.cross}` : r.fixed.missing ? `corregido: faltaba ${r.fixed.missing}` : r.fixed.iem ? (r.fixed.iem === 'side' ? 'corregido: al emisor le faltaba un lado' : 'corregido: no llegaba al emisor') : ''),
       r.also && r.also.length && `también suena ${r.also.join(', ')}`].filter(Boolean).join('; ');
     rows.push([n + 1, r.label, st[r.state] || r.state, r.state === 'ok' ? r.peak : '', warns, r.noise ? (r.noisy && r.noisy.length ? `posible ruido en ${r.noisy.join(', ')}` : 'posible ruido') : '',
-      r.iem ? `${r.iem.label}: ${{ ok: 'llega', nosignal: `no llega${r.iem.to ? ` (llega a ${r.iem.to})` : ''}`, unchecked: 'sin comprobar', pending: 'pendiente' }[r.iem.state] || r.iem.state}` : '']);
+      r.iem ? `${r.iem.label}: ${{ ok: 'llega', nosignal: `no llega${r.iem.to ? ` (llega a ${r.iem.to})` : ''}`, side: `solo llega un lado (falta ${r.iem.missing})`,
+        unchecked: 'sin comprobar', pending: 'pendiente' }[r.iem.state] || r.iem.state}` : '']);
   });
   return rows;
 }
