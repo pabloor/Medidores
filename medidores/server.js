@@ -604,9 +604,12 @@ function lcLevels(levels) {
     (levels[gi] || []).forEach((db, i) => {
       const k = `${g.id}:${i}`;
       if (guided) { // señal de cada tira en el paso actual, elegida o no
-        const h = lc.hot.get(k) || { above: 0, since: 0, peak: -90 };
-        if (db >= thr) { h.above++; if (h.above === LC_HITS) h.since = now; if (db > h.peak) h.peak = db; }
-        else { h.above = 0; lc.busy.delete(k); }
+        const h = lc.hot.get(k) || { above: 0, since: 0, peak: -90, total: 0, t: 0 };
+        if (db >= thr) {
+          h.above++; if (h.above === LC_HITS) h.since = now; if (db > h.peak) h.peak = db;
+          if (h.above > LC_HITS) h.total += now - h.t; // tiempo total con señal en este paso (para elegir el cruce)
+        } else { h.above = 0; lc.busy.delete(k); }
+        h.t = now;
         lc.hot.set(k, h);
       }
       const it = lc.byKey.get(k);
@@ -651,20 +654,32 @@ function lcGuided(now) {
   const lit = st.keys.filter((k, n) => sides[n]);
   if (lit.length) st.cross = null; // ya suena la que toca: no era un cruce
   if (st.keys.length === 2 && lit.length === 1 && now - hot(lit[0]).since >= crossMs) st.missing = st.keys.find((k) => k !== lit[0]);
-  if (!lit.length && st.missing == null) { const o = others.find(([, h]) => now - h.since >= crossMs); if (o) st.cross = o[0]; }
+  // Posible cruce: las tiras del mismo grupo que han sonado al menos `cross` segundos mientras se esperaba la que toca,
+  // de la que más tiempo ha sonado a la que menos (como mucho tres). Las que suenan un momento no cuentan.
+  if (!lit.length && st.missing == null) {
+    const c = [...lc.hot].filter(([k, h]) => h.total >= crossMs && !st.keys.includes(k) && !lc.busy.has(k) && lcSplit(k)[0] === gid)
+      .sort((a, b) => b[1].total - a[1].total).slice(0, 3).map(([k]) => k);
+    if (c.length) st.cross = c;
+  }
 }
 
 // Filas del informe: una por paso (guiado) o por tira (libre)
 function lcRows(src = lc) {
   const byKey = new Map(src.items.map((it) => [it.k, it]));
   const r1 = (v) => Math.round(v * 10) / 10;
-  if (src.mode === 'guided' && src.steps.length) return src.steps.map((s) => ({
-    keys: s.keys, label: s.keys.map(lcLabel).join(' + '), state: s.state,
-    peak: r1(Math.max(...s.keys.map((k) => (byKey.get(k) || { peak: -90 }).peak))), peaks: s.keys.map((k) => r1((byKey.get(k) || { peak: -90 }).peak)),
-    cross: s.cross != null ? lcLabel(s.cross) : '', also: [...s.also].map(lcLabel), missing: s.missing != null ? lcLabel(s.missing) : '', unbalanced: s.unbalanced,
-    noise: s.keys.some((k) => (byKey.get(k) || {}).noise),
-  }));
-  return src.items.map((it) => ({ keys: [it.k], label: lcLabel(it.k), state: it.ok ? 'ok' : 'pending', peak: r1(it.peak), peaks: [r1(it.peak)], cross: '', also: [], missing: '', unbalanced: false, noise: it.noise }));
+  if (src.mode === 'guided' && src.steps.length) {
+    const rows = src.steps.map((s) => ({
+      keys: s.keys, label: s.keys.map(lcLabel).join(' + '), state: s.state,
+      peak: r1(Math.max(...s.keys.map((k) => (byKey.get(k) || { peak: -90 }).peak))), peaks: s.keys.map((k) => r1((byKey.get(k) || { peak: -90 }).peak)),
+      cross: (s.cross || []).map(lcLabel).join(', '), also: [...s.also].map(lcLabel), missing: s.missing != null ? lcLabel(s.missing) : '', unbalanced: s.unbalanced,
+      noise: s.keys.some((k) => (byKey.get(k) || {}).noise), crossFrom: [],
+    }));
+    // La tira por la que entró la señal de otro paso también se marca ("recibe la señal de…")
+    const at = new Map(); rows.forEach((r, n) => r.keys.forEach((k) => at.set(k, n)));
+    src.steps.forEach((s, n) => (s.cross || []).forEach((k) => { if (at.has(k)) rows[at.get(k)].crossFrom.push(rows[n].label); }));
+    return rows;
+  }
+  return src.items.map((it) => ({ keys: [it.k], label: lcLabel(it.k), state: it.ok ? 'ok' : 'pending', peak: r1(it.peak), peaks: [r1(it.peak)], cross: '', also: [], missing: '', unbalanced: false, noise: it.noise, crossFrom: [] }));
 }
 // Resumen de un line check para el historial y la comparación
 function lcSummary() {
@@ -702,7 +717,7 @@ function lcRestore() {
     active: false, interrupted: !!f.active, cur: -1, labels: f.labels || {} });
   lc.items = f.items.map((it) => ({ k: it.k, ok: !!it.ok, peak: Number(it.peak) || -90, noise: !!it.noise, level: -90, above: 0, win: [] }));
   lc.byKey = new Map(lc.items.map((it) => [it.k, it]));
-  lc.steps = (f.steps || []).map((s) => ({ ...lcNewStep(s.keys), state: s.state, cross: s.cross, also: new Set(s.also || []), missing: s.missing, unbalanced: !!s.unbalanced }));
+  lc.steps = (f.steps || []).map((s) => ({ ...lcNewStep(s.keys), state: s.state, cross: s.cross == null ? null : [].concat(s.cross), also: new Set(s.also || []), missing: s.missing, unbalanced: !!s.unbalanced }));
 }
 
 function lcPayload() {
@@ -730,7 +745,8 @@ function lcCsv() {
   const rows = [['line check', fmtDate(src.t), fmtTime(src.t), src.mixer, src.mode === 'guided' ? 'guiado' : 'libre'], [],
     ['paso', 'tira', 'estado', 'pico_dB', 'avisos', 'ruido']];
   src.rows.forEach((r, n) => {
-    const warns = [r.cross && `la señal entra por ${r.cross}`, r.missing && `falta ${r.missing}`, r.unbalanced && 'lados con niveles distintos',
+    const warns = [r.cross && `la señal entra por ${r.cross}`, r.crossFrom && r.crossFrom.length && `recibe la señal de ${r.crossFrom.join(', ')}`,
+      r.missing && `falta ${r.missing}`, r.unbalanced && 'lados con niveles distintos',
       r.also && r.also.length && `también suena ${r.also.join(', ')}`].filter(Boolean).join('; ');
     rows.push([n + 1, r.label, st[r.state] || r.state, r.state === 'ok' ? r.peak : '', warns, r.noise ? 'posible ruido' : '']);
   });

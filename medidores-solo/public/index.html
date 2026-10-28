@@ -466,6 +466,8 @@
   .lc-now .state { font-size: 16px; min-height: 1.3em; }
   .lc-now .state.ok { color: var(--sig); }
   .lc-now .state.warn { color: var(--warm); }
+  .lc-now.alert { border-color: var(--warm); box-shadow: 0 0 0 2px var(--warm); }
+  .lc-now.alert .state { font-weight: 600; }
   .lc-now .next { font-size: 14px; color: var(--muted); margin-top: 4px; }
   .lc-now .nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .lc-list .go { padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); font-size: 13px; cursor: pointer; }
@@ -1939,7 +1941,7 @@
   // los pares estéreo y el orden. La elección se guarda en cada móvil. Las tiras se identifican como "grupo:índice".
   // Pares y orden se escriben con el número que muestra cada tira (7-8, A1-A2, MX1-MX2…); un rango es "1-8" o "A1-A4".
   // En guiado, el servidor va paso a paso y aquí se muestra el que toca, el siguiente y los avisos.
-  let lcRows = [], lcChansKey = '', lcLastCur = -1, lcLastOk = false;
+  let lcRows = [], lcChansKey = '', lcLastCur = -1, lcLastOk = false, lcLastCross = '';
   const lcMode = () => store.get('lcMode', 'guided');
   const lcStrips = () => (lcState.groups || []).flatMap((g) => g.strips.map((s) => ({ ...s, gid: g.id })));
   // número de tira (sin distinguir mayúsculas) → clave
@@ -2017,9 +2019,10 @@
 
   // Texto de estado de un paso o tira del line check
   function lcStepText(r) {
-    if (r.state === 'ok') return [`✓ ${fmtNum(r.peak)} dB`, r.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', r.also.length ? `⚠ ${t('lc.also', { list: r.also.join(', ') })}` : ''].filter(Boolean).join(' · ');
+    const from = r.crossFrom && r.crossFrom.length ? `⚠ ${t('lc.crossFrom', { list: r.crossFrom.join(', ') })}` : ''; // por esta tira entró la señal de otro paso
+    if (r.state === 'ok') return [`✓ ${fmtNum(r.peak)} dB`, r.unbalanced ? `⚠ ${t('lc.unbalanced')}` : '', r.also.length ? `⚠ ${t('lc.also', { list: r.also.join(', ') })}` : '', from].filter(Boolean).join(' · ');
     const warn = r.cross ? `⚠ ${t('lc.cross', { ch: r.cross })}` : r.missing ? `⚠ ${t('lc.sideMissing', { ch: r.missing })}` : '';
-    return [r.state === 'skip' ? t('lc.skipped') : '', warn].filter(Boolean).join(' · '); // un paso saltado conserva su aviso
+    return [r.state === 'skip' ? t('lc.skipped') : '', warn, from].filter(Boolean).join(' · '); // un paso saltado conserva su aviso
   }
   const lcNum = (label) => label.split(' + ').map((l) => l.split(' ')[0]).join('+'); // "13 Teclas L + 14 Teclas R" → "13+14"
   // Comparación con el line check anterior: qué ha cambiado en las mismas tiras
@@ -2066,12 +2069,15 @@
       const txt = lcStepText(cur);
       $('lcState').textContent = txt || t('lc.waiting');
       $('lcState').className = `state${cur.state === 'ok' ? ' ok' : txt ? ' warn' : ''}`;
+      $('lcNow').classList.toggle('alert', !!(cur.cross || cur.missing)); // tarjeta en naranja mientras haya un cruce o falte un lado
       const nxt = rows.find((r, k) => k > lcState.cur && r.state === 'pending');
       $('lcNext').textContent = nxt ? t('lc.next', { name: nxt.label }) : t('lc.last');
       $('lcPrev').disabled = lcState.cur <= 0;
       // vibración corta al dar un paso por bueno (Android)
       if (lcState.cur === lcLastCur && cur.state === 'ok' && !lcLastOk) { try { navigator.vibrate && navigator.vibrate(80); } catch {} }
-      lcLastCur = lcState.cur; lcLastOk = cur.state === 'ok';
+      // y otra más larga al aparecer un cruce
+      if (cur.cross && cur.cross !== lcLastCross) { try { navigator.vibrate && navigator.vibrate([150, 80, 150]); } catch {} }
+      lcLastCur = lcState.cur; lcLastOk = cur.state === 'ok'; lcLastCross = cur.cross;
     }
     // Lista: un renglón por paso (guiado) o por tira (libre). En guiado, "Ir" lleva a ese paso.
     const ul = $('lcList');
@@ -2091,7 +2097,7 @@
     const onlyPending = $('lcPending').checked;
     rows.forEach((row, k) => {
       const r = lcRows[k], isCur = lcState.active && guided && k === lcState.cur;
-      const warn = !!(row.cross || row.missing || row.unbalanced || row.also.length);
+      const warn = !!(row.cross || row.missing || row.unbalanced || row.also.length || (row.crossFrom || []).length);
       r.li.dataset.label = row.label.split(' + ')[0];
       r.nm.textContent = row.label;
       r.bar.style.width = `${Math.round(pos(lcState.active ? levels[row.keys[0]] ?? -90 : -90) * 100)}%`;
@@ -2104,7 +2110,10 @@
       r.li.hidden = onlyPending && row.state === 'ok' && !row.noise && !warn;
     });
     const missing = rows.filter((r) => r.state !== 'ok').map((r) => lcNum(r.label));
-    $('lcSum').textContent = rows.length && !lcState.active ? t('lc.missing', { list: missing.length ? missing.join(', ') : t('lc.none') }) : '';
+    const crosses = rows.filter((r) => r.cross).map((r) => `${lcNum(r.label)} → ${r.cross.split(', ').map(lcNum).join('/')}`); // "5 → 6/7"
+    $('lcSum').textContent = rows.length && !lcState.active
+      ? [t('lc.missing', { list: missing.length ? missing.join(', ') : t('lc.none') }), crosses.length ? t('lc.crossSum', { list: crosses.join(', ') }) : ''].filter(Boolean).join(' · ')
+      : '';
     $('lcCmp').innerHTML = lcCompare();
     // Informe: lo sirve la app de sala (desde escenario, por su dirección)
     $('lcCsv').hidden = !rows.length && !lcState.prev;

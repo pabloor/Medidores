@@ -154,6 +154,8 @@ window.I18N = {
     'lc.cmpBack': 'Vuelven a dar señal:',
     'lc.cmpMoved': 'Pico distinto en más de 6 dB:',
     'lc.cmpSame': 'mismo resultado.',
+    'lc.crossFrom': 'Recibe la señal de {list}',
+    'lc.crossSum': 'Posibles cruces: {list}',
     // compartido:i18n-linecheck (fin)
     'ly.aria': 'Capas',
     'ly.ch': 'Canales',
@@ -320,6 +322,8 @@ window.I18N = {
     'lc.cmpBack': 'Signal again:',
     'lc.cmpMoved': 'Peak differs by more than 6 dB:',
     'lc.cmpSame': 'same result.',
+    'lc.crossFrom': 'Gets the signal of {list}',
+    'lc.crossSum': 'Possible crosses: {list}',
     // compartido:i18n-linecheck (fin)
     'ly.aria': 'Layers',
     'ly.ch': 'Channels',
@@ -486,6 +490,8 @@ window.I18N = {
     'lc.cmpBack': '重新有信号：',
     'lc.cmpMoved': '峰值相差超过 6 dB：',
     'lc.cmpSame': '结果相同。',
+    'lc.crossFrom': '收到 {list} 的信号',
+    'lc.crossSum': '可能的交叉：{list}',
     // compartido:i18n-linecheck (fin)
     'ly.aria': '层',
     'ly.ch': '输入通道',
@@ -652,6 +658,8 @@ window.I18N = {
     'lc.cmpBack': 'Снова есть сигнал:',
     'lc.cmpMoved': 'Пик отличается более чем на 6 дБ:',
     'lc.cmpSame': 'результат тот же.',
+    'lc.crossFrom': 'Сюда приходит сигнал {list}',
+    'lc.crossSum': 'Возможные перепутки: {list}',
     // compartido:i18n-linecheck (fin)
     'ly.aria': 'Слои',
     'ly.ch': 'Каналы',
