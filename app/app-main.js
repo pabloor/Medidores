@@ -17,6 +17,8 @@ const saveSettings = () => { try { fs.writeFileSync(settingsFile(), JSON.stringi
 
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const RUNNING = (readJson(path.join(__dirname, 'version.json')) || {}).version || 'dev';
+// "Medidores Pruebas" (canal de pruebas): otra app que convive con la normal; ver app/build.sh y updater.js
+const NAME = (readJson(path.join(__dirname, 'version.json')) || {}).channel === 'pruebas' ? 'Medidores Pruebas' : 'Medidores';
 let update = { version: null, asked: false, checking: false }; // version: actualización ya descargada, pendiente de reiniciar
 let win = null;
 let quitting = false;
@@ -134,7 +136,7 @@ async function checkUpdates(manual = false) {
   if (r.status === 'staged' && (manual || !update.asked)) {
     update.asked = true;
     const { response } = await dialog.showMessageBox(win || undefined, {
-      type: 'info', message: 'Hay una versión nueva de Medidores',
+      type: 'info', message: `Hay una versión nueva de ${NAME}`,
       detail: `Versión ${r.version} (tienes la ${RUNNING}). Ya está descargada: se estrena al reiniciar la app.\n\nSi estás en un directo, elige «Más tarde»: no se reiniciará hasta que tú lo pidas.`,
       buttons: ['Reiniciar ahora', 'Más tarde'], defaultId: 1, cancelId: 1,
     });
@@ -142,7 +144,7 @@ async function checkUpdates(manual = false) {
   } else if (manual) {
     dialog.showMessageBox(win || undefined, r.status === 'error'
       ? { type: 'warning', message: 'No se pudo comprobar si hay actualizaciones', detail: r.message }
-      : { type: 'info', message: 'Medidores está al día', detail: `Versión ${RUNNING}` });
+      : { type: 'info', message: `${NAME} está al día`, detail: `Versión ${RUNNING}` });
   }
 }
 function restartForUpdate() { app.relaunch(); app.quit(); }
@@ -151,18 +153,18 @@ function buildMenu() {
   const sala = running.sala;
   const esc = running.escenario;
   const template = [
-    { label: 'Medidores', submenu: [
-      { role: 'about', label: 'Acerca de Medidores' },
+    { label: NAME, submenu: [
+      { role: 'about', label: `Acerca de ${NAME}` },
       { label: `Versión ${RUNNING}`, enabled: false },
       update.version
         ? { label: `Reiniciar para actualizar a la ${update.version}`, click: restartForUpdate }
         : { label: update.checking ? 'Buscando actualizaciones…' : 'Buscar actualizaciones…', enabled: !update.checking, click: () => checkUpdates(true) },
       { type: 'separator' },
       ...(process.platform === 'darwin' ? [
-        { role: 'hide', label: 'Ocultar Medidores' }, { role: 'hideOthers', label: 'Ocultar otros' }, { role: 'unhide', label: 'Mostrar todo' },
+        { role: 'hide', label: `Ocultar ${NAME}` }, { role: 'hideOthers', label: 'Ocultar otros' }, { role: 'unhide', label: 'Mostrar todo' },
         { type: 'separator' },
       ] : []),
-      { role: 'quit', label: 'Salir de Medidores' },
+      { role: 'quit', label: `Salir de ${NAME}` },
     ] },
     { label: 'Edición', submenu: [
       { role: 'undo', label: 'Deshacer' }, { role: 'redo', label: 'Rehacer' }, { type: 'separator' },
@@ -199,7 +201,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     loadSettings();
-    app.setName('Medidores');
+    app.setName(NAME);
     // Que el sistema no "duerma" la app (App Nap en Mac) cuando no está en primer plano: la conexión con la mesa lleva temporizadores.
     powerSaveBlocker.start('prevent-app-suspension');
     try {

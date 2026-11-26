@@ -8,7 +8,14 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 
-const API = process.env.MEDIDORES_UPDATE_API || 'https://api.github.com/repos/pabloor/Medidores/releases/latest';
+// Dos canales (version.json → channel):
+//  - estable (Medidores): la release marcada como la última ("latest", tag mac-…). GitHub nunca da como última una pre-release.
+//  - pruebas (Medidores Pruebas): la pre-release más reciente con tag pruebas-…. Así lo que se sube para probar no llega a quien
+//    usa la app normal, y la de pruebas no se cambia por la normal.
+const CHANNEL = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8')).channel || 'estable'; } catch { return 'estable'; } })();
+const REPO = 'https://api.github.com/repos/pabloor/Medidores';
+const API = process.env.MEDIDORES_UPDATE_API || (CHANNEL === 'pruebas' ? `${REPO}/releases?per_page=30` : `${REPO}/releases/latest`);
+const TAG = CHANNEL === 'pruebas' ? /^pruebas-/ : /^mac-/;
 const root = () => path.join(app.getPath('userData'), 'update');
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const tarX = (file, dir) => new Promise((res, rej) => execFile('tar', ['-xzf', file, '-C', dir], (e) => (e ? rej(e) : res())));
@@ -23,8 +30,10 @@ async function getJson(url) {
 // `running`: versión que se está ejecutando ahora. Con una actualización ya preparada, no vuelve a bajarla.
 async function checkForUpdate(running) {
   try {
-    const rel = await getJson(API);
-    const version = String(rel.tag_name || '').replace(/^mac-/, '');
+    const got = await getJson(API);
+    const rel = (Array.isArray(got) ? got.filter((r) => TAG.test(r.tag_name || '') && !r.draft).sort((a, b) => String(b.tag_name).localeCompare(String(a.tag_name)))[0] : got) || {};
+    if (!TAG.test(rel.tag_name || '')) return { status: 'uptodate', version: running };
+    const version = String(rel.tag_name || '').replace(TAG, '');
     const asset = (rel.assets || []).find((a) => a.name === 'update.tar.gz');
     if (!version || !asset) return { status: 'uptodate', version: running };
     if (!(version > running)) return { status: 'uptodate', version: running };

@@ -1,6 +1,16 @@
 name: Construir Medidores.app
+# Cada subida construye "Medidores Pruebas" (otra app, que convive con la normal) y la publica como pre-release (tag pruebas-…):
+# solo la reciben los que tienen instalada la de pruebas. La versión normal (tag mac-…, la que se actualiza sola en todos los
+# equipos) solo se publica a mano: Actions → Construir Medidores.app → Run workflow → canal "estable"
+# (o en la Terminal: gh workflow run build-mac.yml -f canal=estable --ref <rama>).
 on:
   workflow_dispatch:
+    inputs:
+      canal:
+        description: 'pruebas (solo Medidores Pruebas) o estable (actualiza a todos)'
+        type: choice
+        options: [pruebas, estable]
+        default: pruebas
   push:
     paths: ['app/**', 'medidores/**', 'medidores-solo/**', 'package.json', '.github/workflows/build-mac.yml']
 permissions:
@@ -8,6 +18,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.canal || 'pruebas' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,6 +36,10 @@ jobs:
       - name: Publicar release
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
-          TAG="mac-$VERSION"
-          gh release create "$TAG" dist/*.zip dist/update.tar.gz --target "$GITHUB_SHA" --title "Medidores.app ($TAG)" \
-            --notes "Mac: elige Apple-Silicon (M1–M4) o Intel, descomprime y abre «Instalar Medidores.command». Windows: descarga Medidores-Windows-x64.zip, descomprime y abre Medidores.exe (lee LEEME.txt)."
+          if [ "$CHANNEL" = estable ]; then
+            gh release create "mac-$VERSION" dist/*.zip dist/update.tar.gz --target "$GITHUB_SHA" --latest --title "Medidores.app (mac-$VERSION)" \
+              --notes "Mac: elige Apple-Silicon (M1–M4) o Intel, descomprime y abre «Instalar Medidores.command». Windows: descarga Medidores-Windows-x64.zip, descomprime y abre Medidores.exe (lee LEEME.txt)."
+          else
+            gh release create "pruebas-$VERSION" dist/*.zip dist/update.tar.gz --target "$GITHUB_SHA" --prerelease --latest=false --title "Medidores Pruebas ($VERSION)" \
+              --notes "Versión de PRUEBAS: se instala como «Medidores Pruebas», junto a la app normal, sin sustituirla ni tocar sus ajustes. Mac: elige Apple-Silicon (M1–M4) o Intel, descomprime y abre «Instalar Medidores Pruebas.command». Windows: Medidores-Pruebas-Windows-x64.zip. Solo se actualiza con otras versiones de pruebas."
+          fi
