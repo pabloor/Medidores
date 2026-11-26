@@ -12,7 +12,7 @@ const QRCode = require('qrcode');
 const { execFileSync } = require('child_process');
 const crypto = require('crypto');
 const { createDriver } = require('./drivers');
-const { ShureReceiver } = require('./drivers/shure');
+const { ShureStatusReceiver } = require('./drivers/shure-estado');
 
 const args = {};
 process.argv.slice(2).forEach((a, i, all) => {
@@ -183,9 +183,23 @@ const shureMsg = () => ({
 function startShure() {
   receivers.forEach((r) => r.stop());
   for (const k of Object.keys(ext)) delete ext[k];
+  wireless.clear();
   receivers = shureList.map((cfg) => {
     const map = Object.fromEntries(Object.entries(cfg.map).map(([rx, chan]) => [rx, toList(chan).map((c) => c - 1)]));
-    const r = new ShureReceiver(cfg.ip, map, cfg.nic);
+    const r = new ShureStatusReceiver(cfg.ip, map, cfg.nic);
+    for (const [rx, chans] of Object.entries(map)) wireless.set(`${cfg.ip}|${rx}`, { ip: cfg.ip, ch: rx, chans: chans.map((c) => c + 1), name: '', bars: null, mins: null, rf: null, online: false, hist: [] });
+    r.on('wstat', (st) => {
+      const w = wireless.get(`${cfg.ip}|${st.ch}`);
+      if (!w) return;
+      Object.assign(w, { name: st.name, bars: st.bars, mins: st.mins, rf: st.rf });
+      wlCheck(w); wlSend();
+    });
+    r.on('status', (online) => {
+      for (const rx of Object.keys(map)) { const w = wireless.get(`${cfg.ip}|${rx}`); if (w) w.online = online; }
+      if (!online && r.wasOnline) raise('rxOffline', cfg.ip, { ip: cfg.ip }, 'hot');
+      if (online) r.wasOnline = true;
+      wlSend();
+    });
     for (const i of Object.values(map).flat()) ext[i] = { gain: null, online: false };
     r.on('gain', ({ i, value }) => {
       ext[i] = { gain: value, online: true };
@@ -203,6 +217,125 @@ function startShure() {
     return r;
   });
   broadcast(shureMsg());
+  wlSend();
+}
+
+// --- Inalámbricos: batería, RF y nombre de cada canal de receptor Shure (drivers/shure-estado.js) y su historial
+// (una muestra por minuto, 12 horas). El panel los muestra; la batería baja, la RF baja y el receptor perdido generan avisos.
+const WL_HIST_MAX = 12 * 60;
+const wireless = new Map(); // "ip|canal del receptor" -> { ip, ch, chans: [canales de la mesa, 1 = canal 1], name, bars, mins, rf, online, hist: [[t, rayas, minutos, rf]] }
+let wlTimer = null;
+const wlMsg = () => ({ type: 'wireless', list: [...wireless.values()].map((w) => ({ ...w, hist: w.hist.slice(-180) })) }); // a los móviles, las 3 últimas horas
+function wlSend() { clearTimeout(wlTimer); wlTimer = setTimeout(() => broadcast(wlMsg()), 400); }
+setInterval(() => {
+  const now = Math.floor(Date.now() / 1000);
+  for (const w of wireless.values()) {
+    if (!w.online) continue;
+    w.hist.push([now, w.bars, w.mins, w.rf]);
+    if (w.hist.length > WL_HIST_MAX) w.hist.shift();
+  }
+  if (wireless.size) wlSend();
+}, 60000);
+function wlCheck(w) {
+  const ap = alertPrefs(), key = `${w.ip}|${w.ch}`, label = w.name || `${w.ip} · ${w.ch}`;
+  if (w.bars != null && (w.bars <= ap.battBars || (w.mins != null && w.mins <= ap.battMins))) raise('battery', key, { label, bars: w.bars, mins: w.mins }, w.bars === 0 || (w.mins != null && w.mins <= 10) ? 'hot' : 'warn', 10 * 60000);
+  if (w.rf != null && w.bars != null && w.rf < ap.rfMin) raise('rf', key, { label, rf: w.rf }, 'warn');
+}
+
+// --- Avisos: saturación repetida, canal vigilado que se queda sin señal, petaca baja, RF baja, receptor o mesa sin conexión.
+// Llegan a todos los móviles (franja arriba, vibración y sonido) y, en el Mac, como notificación del sistema.
+// Cada aviso se repite como mucho una vez por minuto (la petaca, cada 10 minutos).
+const ALERT_DEFAULTS = { clip: true, silent: true, battery: true, rf: true, offline: true, clipCount: 3, battBars: 1, battMins: 30, rfMin: -85, silentSecs: 20, watch: [] };
+const ALERT_LIMITS = { clipCount: [1, 20], battBars: [0, 4], battMins: [5, 120], rfMin: [-100, -50], silentSecs: [5, 300] };
+const ALERT_PREF = { clip: 'clip', silent: 'silent', battery: 'battery', rf: 'rf', rxOffline: 'offline', mixerLost: 'offline' };
+const alertPrefs = () => ({ ...ALERT_DEFAULTS, ...(prefs.alerts || {}) });
+function setAlertPrefs(v) {
+  const out = alertPrefs();
+  for (const k of ['clip', 'silent', 'battery', 'rf', 'offline']) if (v && typeof v[k] === 'boolean') out[k] = v[k];
+  for (const [k, [mn, mx]] of Object.entries(ALERT_LIMITS)) { const n = Number(v && v[k]); if (Number.isFinite(n)) out[k] = Math.min(mx, Math.max(mn, Math.round(n))); }
+  if (v && Array.isArray(v.watch)) out.watch = validKeys(v.watch);
+  prefs.alerts = out; savePrefs();
+}
+let alerts = [], alertSeq = 0;
+const alertLast = new Map(); // "tipo|qué" -> último aviso
+function raise(kind, key, p, level = 'warn', cooldown = 60000) {
+  if (!alertPrefs()[ALERT_PREF[kind]]) return;
+  const id = `${kind}|${key}`, now = Date.now();
+  if (now - (alertLast.get(id) || 0) < cooldown) return;
+  alertLast.set(id, now);
+  const a = { id: ++alertSeq, t: now, kind, level, p };
+  alerts.push(a);
+  if (alerts.length > 100) alerts.shift();
+  console.log(`[aviso] ${fmtTime(now)} ${kind} ${JSON.stringify(p)}`);
+  broadcast({ type: 'alert', a }, (ws) => ws.mixLock == null); // al móvil de un músico no le llegan avisos técnicos
+}
+const alertsMsg = () => ({ type: 'alerts', list: alerts.slice(-20), prefs: alertPrefs() });
+// Saturación repetida: segundos con saturación de una tira en los últimos 10 s
+const clipSecs = new Map(); // "grupo:canal" -> [segundos]
+function alertClip(key, label, peak) {
+  const sec = Math.floor(Date.now() / 1000), arr = (clipSecs.get(key) || []).filter((x) => sec - x < 10);
+  if (arr[arr.length - 1] !== sec) arr.push(sec);
+  clipSecs.set(key, arr);
+  if (arr.length >= alertPrefs().clipCount) raise('clip', key, { label, peak }, 'hot');
+}
+// Canales vigilados (p. ej. la voz o el playback): aviso si, tras haber tenido señal, se quedan en silencio
+const watchState = new Map(); // key -> { last, armed }
+setInterval(() => {
+  if (!state.layout || !state.levels) return;
+  const ap = alertPrefs(), now = Date.now();
+  for (const key of ap.watch) {
+    const [gid, i] = key.split(':'), gi = state.layout.groups.findIndex((g) => g.id === gid);
+    const db = gi >= 0 && state.levels[gi] ? state.levels[gi][Number(i)] ?? -90 : -90;
+    const w = watchState.get(key) || { last: 0, armed: false };
+    if (db > -50) { w.last = now; w.armed = true; }
+    else if (w.armed && now - w.last > ap.silentSecs * 1000) { raise('silent', key, { label: keyLabel(key), secs: ap.silentSecs }, 'hot', 0); w.armed = false; }
+    watchState.set(key, w);
+  }
+}, 1000);
+
+// --- Mezcla por músico: cada músico abre la app con su enlace (?m=…) y solo ve y mueve los envíos de los canales a su auxiliar
+// (y el fader y el ON de ese auxiliar). Quien tiene la clave de control puede abrir cualquier mezcla.
+// prefs.mixes: { "<bus>": "<clave>" }; bus = índice del auxiliar en el grupo de buses del control (0 = el primero).
+const mixSupported = () => !!(driver && typeof driver.sendsOf === 'function' && state.control && state.control.caps && state.control.caps.sends);
+const mixBuses = () => (mixSupported() ? state.control.caps.sendBuses || 0 : 0);
+function mixBusOf(token) {
+  if (!token) return null;
+  for (const [b, k] of Object.entries(prefs.mixes || {})) if (sameKey(token, k)) return Number(b);
+  return null;
+}
+// La clave de cada mezcla solo se le da al propio ordenador (para el QR del músico); a los demás, qué mezclas tienen enlace.
+const mixesMsg = (ws) => ({ type: 'mixes', buses: mixBuses(), linked: Object.keys(prefs.mixes || {}).map(Number), ...(ws.local ? { keys: prefs.mixes || {} } : {}) });
+const canMix = (ws, bus) => Number.isInteger(bus) && bus >= 0 && bus < mixBuses() && (ws.canControl || ws.mixLock === bus);
+const encSends = (list) => (list || []).map((x) => ({ level: x.level === -Infinity ? '-inf' : x.level, on: x.on }));
+
+// --- Perfiles por bolo o recinto: guardan juntos la mesa, los receptores y emisores Shure, los umbrales y la selección del
+// line check, los avisos y el último line check (para compararlo al volver). perfiles.json en la carpeta de datos.
+const PROFILES_FILE = path.join(DATA_DIR, 'perfiles.json');
+let profiles = [];
+try { profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8')); if (!Array.isArray(profiles)) profiles = []; } catch {}
+const profileName = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 40);
+const profilesMsg = () => ({ type: 'profiles', list: profiles.map((x) => ({ name: x.name, t: x.t, mixer: x.data.config ? `${x.data.config.driver}${x.data.config.ip ? ' ' + x.data.config.ip : ''}` : '' })) });
+function profilesWrite() { try { fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2)); } catch (e) { console.error('No se pudo guardar perfiles.json:', e.message); } }
+function profileSave(name) {
+  const data = { config: state.config, shure: shureList, iem: iemList, lc: prefs.lc || null, lcCfg: (lc.cfg && lc.cfg.keys && lc.cfg.keys.length ? { ...lc.cfg, mode: lc.mode } : prefs.lcCfg) || null,
+    alerts: prefs.alerts || null, lcLast: lcHistory[lcHistory.length - 1] || null };
+  profiles = [...profiles.filter((x) => x.name !== name), { name, t: Date.now(), data }].slice(-40);
+  profilesWrite();
+}
+function profileLoad(name) {
+  const pr = profiles.find((x) => x.name === name);
+  if (!pr) return false;
+  const d = pr.data;
+  const sh = sanitizeShure(d.shure || []); if (sh) { shureList = sh; try { fs.writeFileSync(SHURE_FILE, JSON.stringify(sh, null, 2)); } catch {} startShure(); }
+  const ie = sanitizeIem(d.iem || []); if (ie) { iemList = ie; try { fs.writeFileSync(IEM_FILE, JSON.stringify(ie, null, 2)); } catch {} broadcast(iemMsg()); }
+  if (d.lc) setLcPrefs(d.lc);
+  if (d.alerts) setAlertPrefs(d.alerts);
+  if (d.lcCfg) { prefs.lcCfg = d.lcCfg; savePrefs(); linkBroadcast({ type: 'lc-preset', cfg: d.lcCfg }); }
+  if (d.lcLast && !lcHistory.some((h) => h.startedAt === d.lcLast.startedAt)) { lcHistory.push(d.lcLast); lcHistory.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0)); lcHistory = lcHistory.slice(-LC_HISTORY); lcWrite(); }
+  if (d.config && JSON.stringify(d.config) !== JSON.stringify(state.config)) { const { cfg } = sanitize(d.config); if (cfg) { saveConfig(cfg); startDriver(cfg); } }
+  broadcast(alertsMsg());
+  lcSend();
+  return true;
 }
 
 // --- Emisores de IEM Shure (PSM 1000 P10T, Axient Digital PSM ADTD/ADTQ): qué bus de la mesa llega a cada canal del emisor.
@@ -433,6 +566,7 @@ function logLevels(levels) {
       if (!(db >= CLIP_AT - 1e-6)) return;
       const key = `${g.id}:${i}`;
       const prev = lastClip.get(key);
+      alertClip(key, stripLabel(gi, i), r1(db));
       if (prev && now - prev.last < CLIP_MERGE_MS) {
         prev.last = now;
         if (db > prev.ev.peak) { prev.ev.peak = r1(db); sendClipLog(); }
@@ -472,6 +606,12 @@ const server = http.createServer((req, res) => {
       'Content-Disposition': `attachment; filename="linecheck-${fmtDate(Date.now())}.csv"`,
     });
     return res.end('\ufeff' + csv(lcCsv()));
+  }
+  if (p === '/inalambricos.csv') {
+    const rows = [['fecha', 'hora', 'receptor', 'canal', 'nombre', 'bateria_rayas', 'bateria_min', 'rf_dBm']];
+    for (const w of wireless.values()) for (const [t, b, m, rf] of w.hist) rows.push([fmtDate(t * 1000), fmtTime(t * 1000), w.ip, w.ch, w.name, b ?? '', m ?? '', rf ?? '']);
+    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="inalambricos-${fmtDate(Date.now())}.csv"` });
+    return res.end('\ufeff' + csv(rows));
   }
   if (p === '/registro.csv' || p === '/historial.csv') {
     const rows = p === '/registro.csv'
@@ -528,9 +668,14 @@ const server = http.createServer((req, res) => {
     const i = Number(new URL(req.url, 'http://x').searchParams.get('i')) || 0;
     const urls = lanUrls();
     let url = urls[i] || urls[0] || `http://localhost:${PORT}`;
-    if (new URL(req.url, 'http://x').searchParams.get('role') === 'control') {
+    const qp = new URL(req.url, 'http://x').searchParams;
+    if (qp.get('role') === 'control') {
       if (!isLoopback(req.socket)) { res.writeHead(403); return res.end(); }
       url = `${url.replace(/\/$/, '')}/?k=${prefs.controlKey}`;
+    } else if (qp.get('role') === 'mix') { // enlace de un músico: solo su mezcla
+      const k = (prefs.mixes || {})[Number(qp.get('bus'))];
+      if (!isLoopback(req.socket) || !k) { res.writeHead(403); return res.end(); }
+      url = `${url.replace(/\/$/, '')}/?m=${k}`;
     }
     return QRCode.toString(url, { type: 'svg', margin: 1, color: { dark: '#141925', light: '#ffffff' } }).then((svg) => {
       res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache' });
@@ -556,7 +701,7 @@ server.on('upgrade', (req, socket, head) => {
   else if (p === '/enlace' && ROLE === 'sala') linkWss.handleUpgrade(req, socket, head, (ws) => linkWss.emit('connection', ws, req));
   else socket.destroy();
 });
-const state = { config: null, status: { state: 'setup', detail: 'Elige tu mesa para empezar', key: 'st.setup' }, layout: null, levels: null, raw: null, control: null, meterFall: null, meterRise: null };
+const state = { config: null, status: { state: 'setup', detail: 'Elige tu mesa para empezar', key: 'st.setup' }, layout: null, levels: null, raw: null, control: null, meterFall: null, meterRise: null, gr: null, scene: null };
 const q = (db) => (db <= -90 ? -90 : Math.round(db * 10) / 10); // décimas de dB: el umbral de saturación es exacto
 let driver = null;
 let dirty = false;
@@ -964,6 +1109,7 @@ function broadcast(obj, filter = () => true) {
   for (const c of wss.clients) if (c.readyState === 1 && filter(c)) c.send(msg);
 }
 function setStatus(s) {
+  if (s.state === 'lost' && state.status && state.status.state === 'connected') raise('mixerLost', 'mixer', { detail: s.detail }, 'hot');
   state.status = s;
   broadcast({ type: 'status', ...s });
   console.log(`[${s.state}] ${s.detail}`);
@@ -973,14 +1119,17 @@ const encVal = (v) => (v === -Infinity ? '-inf' : v);
 const enc = (c) => ({ caps: c.caps, ch: c.ch.map(encStrip), main: c.main.map(encStrip), bus: (c.bus || []).map(encStrip), mtx: (c.mtx || []).map(encStrip), vca: (c.vca || []).map(encStrip) });
 const encStrip = (s) => ({ ...s, fader: encVal(s.fader) });
 const meterPointMsg = () => ({ type: 'meter-point', value: prefs.meterPoint, supported: !!(driver && typeof driver.setMeterPoint === 'function') });
-const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'iem-set', 'iem-detect', 'shure-scan', 'meter-point', 'history-clear', 'clip-log-clear', 'lc-prefs']);
+const CONTROL_ONLY = new Set(['set', 'connect', 'shure-set', 'iem-set', 'iem-detect', 'shure-scan', 'meter-point', 'history-clear', 'clip-log-clear', 'lc-prefs',
+  'alert-prefs', 'alerts-clear', 'profile-save', 'profile-load', 'profile-del', 'mix-link', 'mix-revoke']);
+// El músico (enlace ?m=…) puede mover el fader y el ON de su propio auxiliar, aunque no tenga la clave de control.
+const musicianSet = (ws, msg) => msg.type === 'set' && ws.mixLock != null && msg.g === 'bus' && msg.i === ws.mixLock && (msg.key === 'fader' || msg.key === 'on');
 // La clave solo se le muestra al propio ordenador (para el QR de control).
-const roleMsg = (ws) => ({ type: 'role', role: ws.canControl ? 'control' : 'viewer', ...(ws.local ? { key: prefs.controlKey } : {}) });
+const roleMsg = (ws) => ({ type: 'role', role: ws.canControl ? 'control' : 'viewer', ...(ws.local ? { key: prefs.controlKey } : {}), ...(ws.mixLock != null ? { mix: ws.mixLock } : {}) });
 const infoMsg = () => ({ type: 'config', config: state.config, urls: lanUrls(), ifaces: lanAddresses().map((a) => a.name), version: APP_VERSION });
 
 function startDriver(cfg) {
   if (driver) { driver.removeAllListeners(); driver.stop(); driver = null; }
-  state.layout = state.levels = state.raw = state.control = state.meterFall = state.meterRise = null;
+  state.layout = state.levels = state.raw = state.control = state.meterFall = state.meterRise = state.gr = state.scene = null;
   resetShowLog();
   lcArchive(); if (lc.items.length) lcWrite(); // el line check de la mesa anterior queda en el historial
   Object.assign(lc, { active: false, interrupted: false, items: [], byKey: new Map(), steps: [], cur: -1, startedAt: 0, finishedAt: 0, labels: {} }); lcLast = null;
@@ -1003,7 +1152,10 @@ function startDriver(cfg) {
   if (driver.rise != null) state.meterRise = driver.rise; // suavizado de la subida: solo lo pide DiGiCo
   driver.on('meterRise', (v) => { state.meterRise = v; broadcast({ type: 'meter-rise', value: v }); });
   driver.on('meterFall', (v) => { state.meterFall = v; broadcast({ type: 'meter-fall', value: v }); }); // caída del medidor ajustada desde el diagnóstico
-  driver.on('control', (c) => { state.control = c; broadcast({ type: 'control', ...enc(c) }); });
+  driver.on('control', (c) => { state.control = c; broadcast({ type: 'control', ...enc(c) }); for (const ws of wss.clients) if (ws.readyState === 1) ws.send(JSON.stringify(mixesMsg(ws))); });
+  driver.on('gr', (g) => { state.gr = g; grDirty = true; }); // reducción de ganancia de compresor y puerta de las entradas (dB)
+  driver.on('scene', (sc) => { const changed = !!state.scene && (state.scene.num !== sc.num || state.scene.name !== sc.name); state.scene = sc; broadcast({ type: 'scene', ...sc, changed }); });
+  driver.on('send', (p) => broadcast({ type: 'send', ...p, value: encVal(p.value) }, (ws) => ws.mixBus === p.bus));
   driver.on('param', (p) => {
     const c = state.control && state.control[p.g] && state.control[p.g][p.i];
     if (c) c[p.key] = p.value;
@@ -1033,6 +1185,7 @@ wss.on('connection', (ws, req) => {
   const local = isLoopback(req.socket);
   ws.local = local;
   ws.canControl = local || sameKey(new URL(req.url, 'http://x').searchParams.get('k'), prefs.controlKey);
+  ws.mixLock = ws.canControl ? null : mixBusOf(new URL(req.url, 'http://x').searchParams.get('m')); // enlace de músico
   ws.send(JSON.stringify(roleMsg(ws)));
   ws.send(JSON.stringify(infoMsg()));
   ws.send(JSON.stringify({ type: 'status', ...state.status }));
@@ -1044,6 +1197,11 @@ wss.on('connection', (ws, req) => {
   ws.send(JSON.stringify(iemMsg()));
   ws.send(JSON.stringify(meterPointMsg()));
   ws.send(JSON.stringify({ type: 'clip-log', events: clipLog.slice(-300) }));
+  if (state.scene) ws.send(JSON.stringify({ type: 'scene', ...state.scene, changed: false }));
+  ws.send(JSON.stringify(mixesMsg(ws)));
+  ws.send(JSON.stringify(wlMsg()));
+  if (ws.mixLock == null) ws.send(JSON.stringify(alertsMsg()));
+  if (ws.canControl) ws.send(JSON.stringify(profilesMsg()));
   if (ROLE === 'sala') {
     ws.send(JSON.stringify({ type: 'msgs', list: messages.slice(-30) }));
     ws.send(JSON.stringify(lcPayload()));
@@ -1055,7 +1213,43 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'nics') return ws.send(JSON.stringify(nicsMsg()));
     if (ROLE === 'sala' && handleShared(ws, msg)) return;
     // Quien no tiene la clave solo puede medir: nada de lo que modifica la mesa o los ajustes compartidos.
-    if (!ws.canControl && CONTROL_ONLY.has(msg.type)) return;
+    if (!ws.canControl && CONTROL_ONLY.has(msg.type) && !musicianSet(ws, msg)) return;
+    if (msg.type === 'mix-open') { // abrir la mezcla de un auxiliar: estado de todos los envíos y, después, sus cambios
+      if (!canMix(ws, msg.bus)) return;
+      ws.mixBus = msg.bus;
+      if (typeof driver.watchSends === 'function') driver.watchSends(msg.bus);
+      return ws.send(JSON.stringify({ type: 'sends', bus: msg.bus, list: encSends(driver.sendsOf(msg.bus)) }));
+    }
+    if (msg.type === 'mix-close') { ws.mixBus = null; return; }
+    if (msg.type === 'send-set') {
+      if (!canMix(ws, msg.bus) || !Number.isInteger(msg.i) || !['level', 'on'].includes(msg.key)) return;
+      let value = msg.value === '-inf' ? -Infinity : msg.value;
+      if (msg.key === 'on') value = !!value; else if (!(value === -Infinity || Number.isFinite(value))) return;
+      value = driver.setSend(msg.bus, msg.i, msg.key, value);
+      if (value === undefined) return;
+      return broadcast({ type: 'send', bus: msg.bus, i: msg.i, key: msg.key, value: encVal(value) }, (other) => other !== ws && other.mixBus === msg.bus);
+    }
+    if (msg.type === 'mix-link' || msg.type === 'mix-revoke') { // enlaces de músico: solo desde el propio ordenador
+      const bus = msg.bus;
+      if (!ws.local || !Number.isInteger(bus) || bus < 0 || bus > 63) return;
+      prefs.mixes = { ...(prefs.mixes || {}) };
+      if (msg.type === 'mix-link') prefs.mixes[bus] = prefs.mixes[bus] || newControlKey();
+      else { delete prefs.mixes[bus]; for (const c of wss.clients) if (c.mixLock === bus) { c.mixLock = null; c.close(); } }
+      savePrefs();
+      for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify(mixesMsg(c)));
+      return;
+    }
+    if (msg.type === 'alert-prefs') { setAlertPrefs(msg.prefs); return broadcast(alertsMsg()); }
+    if (msg.type === 'alerts-clear') { alerts = []; return broadcast(alertsMsg()); }
+    if (msg.type === 'profile-save' || msg.type === 'profile-load' || msg.type === 'profile-del') {
+      const name = profileName(msg.name);
+      if (!name) return;
+      if (msg.type === 'profile-save') profileSave(name);
+      else if (msg.type === 'profile-del') { profiles = profiles.filter((x) => x.name !== name); profilesWrite(); }
+      else if (!profileLoad(name)) return;
+      broadcast(profilesMsg(), (c) => c.canControl);
+      return ws.send(JSON.stringify({ type: 'profile-done', action: msg.type.slice(8), name }));
+    }
     if (msg.type === 'control-key-regen' && ws.local) {
       prefs.controlKey = newControlKey(); savePrefs();
       for (const c of wss.clients) if (!c.local) { c.canControl = false; c.send(JSON.stringify(roleMsg(c))); c.close(); }
@@ -1153,6 +1347,14 @@ setInterval(() => {
   broadcast({ type: 'meters', g: state.levels.map((a) => a.map(q)) });
 }, 60);
 setInterval(() => { if (state.raw) broadcast({ type: 'raw', raw: state.raw }, (c) => c.wantsRaw); }, 500);
+// Reducción de ganancia: como mucho 10 veces por segundo, en medios dB
+let grDirty = false;
+setInterval(() => {
+  if (!grDirty || !state.gr) return;
+  grDirty = false;
+  const qq = (a) => (a || []).map((v) => Math.round(Math.min(60, Math.max(0, Number(v) || 0)) * 2) / 2);
+  broadcast({ type: 'gr', comp: qq(state.gr.comp), gate: qq(state.gr.gate) });
+}, 100);
 
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') console.error(`\nEl puerto ${PORT} ya está en uso: probablemente Medidores ya está abierto. Ciérralo o usa --port 3001.\n`);

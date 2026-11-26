@@ -48,6 +48,13 @@ sock.on('connect', async () => {
   }
   console.log(`\r  ${params.length} parámetros encontrados.                `);
 
+  // Lista de medidores (mtrinfo): sirve para comprobar los de reducción de ganancia que busca el driver (GR_GUESS en yamaha.js)
+  out.push('', '# Medidores (mtrinfo)', '');
+  for (let n = 0, miss = 0; miss < 3 && n < 300; n++) {
+    const line = await ask(`mtrinfo ${n}`);
+    if (line.startsWith('OK mtrinfo')) { miss = 0; out.push(line); } else miss++;
+  }
+
   // Valores actuales de todo lo que parezca vínculo o pareja de canales.
   const linkish = params.filter((p) => /link|pair|gang|stereo/i.test(p.name) && !/Monitor|Meter/i.test(p.name));
   out.push('', '# Valores actuales de parámetros de vínculo', '');

@@ -11,7 +11,14 @@
 //     oficial. post_meter = pre_meter + trim (dB con decimales): ver chLevel. A 0 dB (valor 0) la mesa deja de mandarlo: ver pollTop.
 //   - Rutas de medidor que anuncia la mesa por canal (consultando post_meter/?): Channel_Input/pre_meter y post_meter,
 //     fader_meter, Output/meter y Dynamics/input_meter (left/right; estas tres dan lo mismo que post_meter),
-//     EQ/GR_meter_1…4 y Dynamics/GR_meter_1…4 (reducción de ganancia, aún sin usar), Output/meter2, meter4, meter/centre, SL, SR, LFE.
+//     EQ/GR_meter_1…4 y Dynamics/GR_meter_1…4 (reducción de ganancia), Output/meter2, meter4, meter/centre, SL, SR, LFE.
+//   Reducción del compresor: se pide Dynamics/GR_meter_1 de cada entrada (las _2…_4 serían las bandas del multibanda). SIN VERIFICAR
+//   con la mesa: se supone el mismo formato (mitad baja = dB de reducción; 126 = sin dato). La puerta no anuncia medidor propio.
+//
+// ENVÍOS A AUXILIARES (mezcla por músico) y SNAPSHOT ACTUAL. SIN VERIFICAR con una mesa (no hay documentación pública):
+//   /Input_Channels/N/Aux_Send/M/send_level   float dB (-150 = −∞)      /Input_Channels/N/Aux_Send/M/send_on   float 0/1
+//   /Snapshots/Current_Snapshot               número (y quizá nombre) del snapshot cargado
+//   Compruébalo con tools/digico-pruebas/listar-rutas.js; si las rutas son otras, basta con cambiarlas aquí.
 //
 // Protocolo anterior (suposición de la comunidad, que no funciona en una Quantum):
 // DiGiCo no publica medidores en su OSC general. Solo los envía por el protocolo de la app de iPad,
@@ -73,6 +80,9 @@ class DiGiCo extends EventEmitter {
     this.ctlReady = false;
     this.pendSets = new Map();
     this.chVals = new Map(); // parámetro -> Map(canal -> { v, tags, t, n }): último valor que la mesa ha enviado de cada canal
+    this.grComp = []; this.grBase = -1; // reducción del compresor de cada entrada (dB) e id del primer medidor de reducción
+    this.sends = [];       // envíos a auxiliares: sends[aux][canal] = { level, on } (se piden al abrir una mezcla)
+    this.scene = null;     // snapshot actual: { num, name }
   }
 
   start() {
@@ -107,7 +117,8 @@ class DiGiCo extends EventEmitter {
     // último nivel para que la interfaz no lo dé por perdido (cae a -90 si pasa 1,5 s sin datos); si la mesa no contesta, se deja de repetir.
     this.timers.push(setInterval(() => { if (this.count && this.meterSeen && Date.now() - this.lastAny < 10000) this.emitLevels(); }, 250));
     this.timers.push(setInterval(() => { if (this.count && this.meterSeen && Date.now() - this.lastAny < 10000) this.pollTop(); }, 100));
-    this.timers.push(setInterval(() => { if (this.sock && this.count) this.send('/Console/Name/?'); }, 2500)); // aviso de vida: la mesa contesta aunque nadie toque nada
+    this.timers.push(setInterval(() => { if (this.sock && this.count) { this.send('/Console/Name/?'); this.send('/Snapshots/Current_Snapshot/?'); } }, 2500)); // aviso de vida: la mesa contesta aunque nadie toque nada
+    this.timers.push(setInterval(() => { if (this.grDirty) { this.grDirty = false; this.emit('gr', { comp: this.grComp.slice(0, this.count), gate: [] }); } }, 100));
   }
 
   send(address, args = []) {
@@ -241,7 +252,7 @@ class DiGiCo extends EventEmitter {
     const map = (arr) => arr.map((c) => ({ fader: c.fader, on: c.on, gain: c.gain, link: 0, stereo: false, pair: -1 }));
     // Los VCA llevan su número y nombre en la propia tira (no tienen medidor ni están en el layout de medidores).
     const vca = this.cs.vca.map((c, i) => ({ fader: c.fader, on: c.on, gain: null, link: 0, stereo: false, pair: -1, num: `V${i + 1}`, name: this.vcaNames[i + 1] || '' }));
-    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'], vcaName: 'VCA', muteButton: true }, ch: map(this.cs.ch), main: [], bus: map(this.cs.bus), mtx: map(this.cs.mtx), vca };
+    return { caps: { gain: { min: -20, max: 60, step: 0.5 }, faderMax: 10, mainNames: ['Stereo'], vcaName: 'VCA', muteButton: true, sends: this.out.aux > 0, sendBuses: this.out.aux }, ch: map(this.cs.ch), main: [], bus: map(this.cs.bus), mtx: map(this.cs.mtx), vca };
   }
 
   ctlUpdate(g, i, param, v) {
@@ -282,6 +293,29 @@ class DiGiCo extends EventEmitter {
     return out;
   }
 
+  // ---- Envíos de las entradas a un auxiliar (mezcla de monitores). Solo las auxiliares tienen envíos (bus < out.aux).
+  sendsOf(bus) { return bus >= 0 && bus < this.out.aux && this.count ? Array.from({ length: this.count }, (_, i) => ({ ...((this.sends[bus] || [])[i] || { level: null, on: null }) })) : null; }
+  watchSends(bus) {
+    if (!(bus >= 0 && bus < this.out.aux) || !this.count) return;
+    let slot = 0;
+    for (let n = 1; n <= this.count; n++) {
+      setTimeout(() => { this.send(`/Input_Channels/${n}/Aux_Send/${bus + 1}/send_level/?`); this.send(`/Input_Channels/${n}/Aux_Send/${bus + 1}/send_on/?`); }, (slot++) * 12);
+    }
+  }
+  setSend(bus, i, key, value) {
+    if (!(bus >= 0 && bus < this.out.aux) || !(i >= 0 && i < this.count)) return undefined;
+    const row = (this.sends[bus] = this.sends[bus] || []), s = (row[i] = row[i] || { level: null, on: null });
+    let addr, arg;
+    if (key === 'level') {
+      const db = value === -Infinity || value == null || value <= -90 ? -150 : Math.min(10, Math.max(-150, Number(value)));
+      addr = `/Input_Channels/${i + 1}/Aux_Send/${bus + 1}/send_level`; arg = osc.float(db); s.level = db <= -90 ? -Infinity : Math.round(db * 10) / 10;
+    } else if (key === 'on') { addr = `/Input_Channels/${i + 1}/Aux_Send/${bus + 1}/send_on`; arg = osc.float(value ? 1 : 0); s.on = !!value; }
+    else return undefined;
+    this.pendSets.set(addr, arg);
+    if (!this.flushTimer) this.flushTimer = setTimeout(() => { this.flushTimer = null; for (const [a, v] of this.pendSets) this.send(a, [v]); this.pendSets.clear(); }, 40);
+    return s[key];
+  }
+
   // refresh = true: renueva la suscripción sin tocar el estado (niveles, canales, "medidores vistos").
   // Los medidores se piden con un número (id) por tira: 0..canales-1 las entradas, luego los buses y luego las matrices.
   // clear = false: vuelve a pedir los mismos medidores sin borrar antes la suscripción, para que no haya un hueco sin medidores.
@@ -315,6 +349,12 @@ class DiGiCo extends EventEmitter {
           if (clear) this.send(`${base}/Channel_Input/trim/?`);
         }, 20 + (++slot) * 8);
       }
+    }
+    // Reducción de ganancia del compresor de cada entrada, detrás de todo lo anterior
+    this.grBase = id;
+    for (let i = 0; i < this.count; i++, id++) {
+      const myId = id, path = `${this.stripBase('ch', i)}/Dynamics/GR_meter_1`;
+      setTimeout(() => this.requestMeter(myId, path), 20 + (++slot) * 8);
     }
     this.subscribedAt = Date.now();
   }
@@ -431,6 +471,19 @@ class DiGiCo extends EventEmitter {
     }
 
     if (m.address === '/Meters/values') return this.onMeters(m.args);
+    if (m.address === '/Snapshots/Current_Snapshot') { // número (y quizá nombre) del snapshot cargado
+      const num = m.args.find((a) => typeof a === 'number'), name = m.args.find((a) => typeof a === 'string') || '';
+      if (num != null && (!this.scene || this.scene.num !== num || this.scene.name !== name)) { this.scene = { num: Math.round(num), name }; this.emit('scene', this.scene); }
+      return;
+    }
+    const sm = /^\/Input_Channels\/(\d+)\/Aux_Send\/(\d+)\/(send_level|send_on)$/.exec(m.address);
+    if (sm && typeof m.args[0] === 'number') {
+      const i = Number(sm[1]) - 1, bus = Number(sm[2]) - 1, key = sm[3] === 'send_level' ? 'level' : 'on';
+      const row = (this.sends[bus] = this.sends[bus] || []), s = (row[i] = row[i] || { level: null, on: null });
+      const value = key === 'level' ? (m.args[0] <= -90 ? -Infinity : Math.round(m.args[0] * 10) / 10) : m.args[0] >= 0.5;
+      if (s[key] !== value) { s[key] = value; this.emit('send', { bus, i, key, value }); }
+      return;
+    }
     if (m.address === '/Console/Name') { this.consoleName = String(m.args[0] || '').split(' ')[0]; this.emitLayout(); return; }
     if ((m.address === '/Console/Input_Channels' || m.address === '/Console/Channels') && Number.isInteger(m.args[0])) {
       return this.setCount(m.args[0]);
@@ -487,6 +540,11 @@ class DiGiCo extends EventEmitter {
       if (this.series) this.series.ids.add(id);
       if (this.series && id === this.series.id) this.series.rows.push([Date.now() - this.series.t0, hi, lo, v]);
       const m = this.meterMode === 'mix' ? (hi + lo) / 2 : this.meterMode === 'peak' ? hi : this.meterMode === 'max' ? Math.min(hi, lo) : lo;
+      if (this.grBase >= 0 && id >= this.grBase && id < this.grBase + this.count) { // reducción de ganancia del compresor
+        this.grComp[id - this.grBase] = lo >= 100 ? 0 : lo;
+        this.grDirty = true;
+        continue;
+      }
       const pb = this.preBase();
       if (id >= pb && id < pb + this.count) { // pre_meter de una entrada: solo afina el valor de post_meter
         const i = id - pb;

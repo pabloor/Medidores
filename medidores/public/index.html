@@ -209,7 +209,8 @@
   #roleHint { color: var(--muted); font-size: 14px; line-height: 1.3; margin: 10px 0 0; }
   #regenKey { margin-top: 10px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 14px; cursor: pointer; }
   /* Sin la clave de control solo se puede medir: se ocultan los ajustes que modifican la mesa. */
-  body.viewer #changeMixer, body.viewer #clearLog, body.viewer #clearHistory, body.viewer #mpRow, body.viewer #ctrlSettings, body.viewer #iemSettings { display: none !important; }
+  body.viewer #changeMixer, body.viewer #clearLog, body.viewer #clearHistory, body.viewer #mpRow, body.viewer #ctrlSettings, body.viewer #iemSettings,
+  body.viewer #alPrefs, body.viewer #alClear, body.viewer #profileSettings, body.viewer #mixSettings, body.viewer #midiSettings { display: none !important; }
   .qr { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center; }
   .qr img { width: 150px; height: 150px; border-radius: 8px; background: #fff; }
   .qr p { margin: 0 0 8px; }
@@ -564,6 +565,74 @@
     .cs-cap { width: 34px; margin-left: -17px; }
   }
 
+  /* Compresión y puerta: barra naranja desde arriba (reducción del compresor) y punto arriba (puerta cerrando) */
+  .meter .grc, .cs-meter .grc { position: absolute; top: 0; right: 0; width: 4px; height: 0; background: #f08a3b; box-shadow: -1px 0 0 rgba(0,0,0,.35); pointer-events: none; }
+  .cs-meter .grc { width: 3px; }
+  .meter .gate, .cs-meter .gate { position: absolute; top: 3px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--g-vca); opacity: 0; pointer-events: none; }
+  .meter .gate.on, .cs-meter .gate.on { opacity: 1; }
+  /* Color de la tira en la mesa y petaca baja */
+  .strip .foot .num { border-bottom: 3px solid var(--sc, transparent); padding: 0 3px; }
+  .strip.batt-low .foot .num { color: var(--hot); }
+  /* Escena actual */
+  .scene-chip { flex: 0 1 auto; min-width: 0; max-width: 30vw; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 8px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+  .scene-chip[hidden] { display: none; }
+  .modes button[hidden] { display: none; }
+  #wlBtn { position: relative; }
+  #wlBtn .badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--hot); color: #fff; font-size: 12px; font-weight: 600; line-height: 18px; text-align: center; }
+  #wlBtn .badge[hidden] { display: none; }
+  /* Modo Mezcla (envíos a un auxiliar) */
+  .mixv { display: none; min-height: 0; min-width: 0; grid-template-rows: auto minmax(0, 1fr); padding: 0 env(safe-area-inset-right, 0px) 8px env(safe-area-inset-left, 0px); }
+  body[data-mode="mix"] .mixv { display: grid; }
+  body[data-mode="mix"] .board, body[data-mode="mix"] .filters, body[data-mode="mix"] #clearPeaks { display: none; }
+  .mix-head { display: flex; align-items: center; gap: 8px; padding: 0 10px 6px; font-size: 17px; font-weight: 600; }
+  .mix-head select { font: inherit; font-size: 16px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  .mix-head select[hidden] { display: none; }
+  .mix-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; }
+  body.musician #reportBtn, body.musician #msgBtn, body.musician #openPhone, body.musician #wlBtn, body.musician #sceneChip { display: none; }
+  /* Avisos */
+  .alerts { position: fixed; z-index: 5; left: 50%; transform: translateX(-50%); top: calc(50px + env(safe-area-inset-top, 0px)); width: min(520px, 94vw); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  .alert { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 10px; font-size: 16px; background: var(--warm); color: #231703; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+  .alert.hot { background: var(--hot); color: #fff; }
+  .alert span { flex: 1; }
+  .alert time { font-size: 13px; opacity: .8; font-variant-numeric: tabular-nums; }
+  .alert button { border: 0; background: none; font-size: 22px; line-height: 1; padding: 0 4px; cursor: pointer; color: inherit; }
+  .al-thr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 8px 0; }
+  .al-thr label { display: grid !important; gap: 3px; font-size: 13px; color: var(--muted); border: 0 !important; padding: 0 !important; }
+  .al-thr input { font: inherit; font-size: 16px; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); width: 100%; }
+  #alWatch, #alWatchCh { display: flex; flex-wrap: wrap; gap: 5px; max-height: 150px; overflow: auto; margin: 6px 0; }
+  .al-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; }
+  .al-list li { padding: 4px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+  .al-list li time { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .al-list li.hot span { color: var(--hot); }
+  .set-mini { border: 1px solid var(--line); background: var(--stage); color: var(--ink); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 14px; cursor: pointer; }
+  .pf-save { display: flex; gap: 6px; margin: 8px 0; }
+  .pf-save input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--stage); color: var(--ink); }
+  .pf-save button, .shure-list li button { border: 1px solid var(--line); background: var(--stage); color: var(--ink); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 14px; cursor: pointer; }
+  .shure-list li span small { display: block; color: var(--muted); font-size: 13px; }
+  .shure-list .empty-row { color: var(--muted); }
+  /* Inalámbricos */
+  #wlDlg { width: min(560px, 94vw); }
+  .wl-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto; }
+  .wl-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) 92px 92px; grid-template-areas: "dot main batt rf" "spark spark spark spark"; gap: 4px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .wl-list li .dot { grid-area: dot; width: 9px; height: 9px; border-radius: 50%; background: var(--hot); }
+  .wl-list li .dot.on { background: var(--sig); }
+  .wl-main { grid-area: main; min-width: 0; }
+  .wl-main b { display: block; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wl-main small, .wl-batt small, .wl-rf small { display: block; color: var(--muted); font-size: 13px; }
+  .wl-batt { grid-area: batt; } .wl-rf { grid-area: rf; }
+  .wl-batt .bars { display: flex; gap: 2px; }
+  .wl-batt .bars i { width: 12px; height: 12px; border-radius: 2px; background: var(--line); }
+  .wl-batt .bars i.on { background: var(--sig); }
+  .wl-list li.low .wl-batt .bars i.on { background: var(--hot); }
+  .wl-list li.low .wl-batt small { color: var(--hot); }
+  .rfbar { display: block; height: 12px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .rfbar i { display: block; height: 100%; background: var(--g-ch); }
+  .wl-spark { grid-area: spark; width: 100%; height: 28px; }
+  .wl-spark polyline { fill: none; stroke: var(--sig); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .wl-list .empty-row { display: block; color: var(--muted); }
+  #mixQrDlg .qr img { width: 180px; height: 180px; }
+  #mixQrDlg .qr { grid-template-columns: 180px 1fr; }
+
   @media (prefers-reduced-motion: reduce) { .status .dot { animation: none !important; } .toast { transition: none; } }
 </style>
 </head>
@@ -573,7 +642,9 @@
   <div class="modes" id="modes" hidden>
     <button data-mode="meters" aria-pressed="true" data-i18n="mode.meters"></button>
     <button data-mode="control" aria-pressed="false" data-i18n="mode.control"></button>
+    <button data-mode="mix" id="modeMix" aria-pressed="false" data-i18n="mode.mix" hidden></button>
   </div>
+  <button class="scene-chip" id="sceneChip" type="button" hidden></button>
   <button class="icon-btn" id="clearPeaks" data-i18n-aria="btn.resetClips">
     <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg>
   </button>
@@ -584,6 +655,10 @@
   <button class="icon-btn" id="msgBtn" data-i18n-aria="a.msgs">
     <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>
     <span class="badge" id="msgBadge" hidden></span>
+  </button>
+  <button class="icon-btn" id="wlBtn" data-i18n-aria="a.wireless" hidden>
+    <svg viewBox="0 0 24 24"><path d="M12 21V11"/><circle cx="12" cy="9" r="2"/><path d="M7.8 13.2a6 6 0 0 1 0-8.4M16.2 4.8a6 6 0 0 1 0 8.4M5 16a10 10 0 0 1 0-14M19 2a10 10 0 0 1 0 14"/></svg>
+    <span class="badge" id="wlBadge" hidden></span>
   </button>
   <button class="icon-btn" id="lockBtn" data-i18n-aria="a.unlock" aria-pressed="true" hidden>
     <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path id="lockShackle" d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
@@ -607,10 +682,16 @@
   <div class="cpinned" id="cpinned"></div>
 </main>
 
+<main class="mixv" id="mixView">
+  <div class="mix-head"><select id="mixBus" data-i18n-aria="mix.pick"></select><span id="mixTitle"></span></div>
+  <div class="mix-body"><div class="cscroller" id="mixScroller"></div><div class="cpinned" id="mixPinned"></div></div>
+</main>
+
 <nav class="filters" id="filters" data-i18n-aria="a.groups"></nav>
 <nav class="layers" id="layers" data-i18n-aria="ly.aria"></nav>
 
 <div class="toast" id="toast"></div>
+<div class="alerts" id="alerts" aria-live="assertive"></div>
 
 <section class="raw" id="raw" hidden data-i18n-aria="a.raw"></section>
 
@@ -622,6 +703,7 @@
   <label class="set-field" id="salaHostRow" hidden><span data-i18n="set.salaHost"></span><small data-i18n="set.salaHostHint"></small><input id="optSalaHost" autocomplete="off" spellcheck="false"></label>
   <label><span><span data-i18n="set.hold"></span><small data-i18n="set.holdHint"></small></span><input type="checkbox" id="optHold" checked></label>
   <label><span><span data-i18n="set.light"></span><small data-i18n="set.lightHint"></small></span><input type="checkbox" id="optLight"></label>
+  <label><span><span data-i18n="set.gr"></span><small data-i18n="set.grHint"></small></span><input type="checkbox" id="optGr"></label>
   <label><span><span data-i18n="set.raw"></span><small data-i18n="set.rawHint"></small></span><input type="checkbox" id="optRaw"></label>
   <label id="mpRow" hidden><span><span data-i18n="set.mp"></span><small data-i18n="set.mpHint"></small></span>
     <select id="optMp"><option value="PreHPF" data-i18n="mp.PreHPF"></option><option value="PreFader" data-i18n="mp.PreFader"></option><option value="PostOn" data-i18n="mp.PostOn"></option></select></label>
@@ -683,10 +765,65 @@
     <p class="error" id="iemErr"></p>
     </details>
   </div>
+  <div id="alertSettings">
+    <p class="sub" data-i18n="set.alerts"></p>
+    <label><span><span data-i18n="al.sound"></span><small data-i18n="al.soundHint"></small></span><input type="checkbox" id="alSound"></label>
+    <label id="alNotifRow" hidden><span><span data-i18n="al.notif"></span><small id="alNotifHint"></small></span><button type="button" class="set-mini" id="alNotif"></button></label>
+    <div id="alPrefs">
+      <label><span data-i18n="al.k.clip"></span><input type="checkbox" data-al="clip"></label>
+      <label><span data-i18n="al.k.silent"></span><input type="checkbox" data-al="silent"></label>
+      <label><span data-i18n="al.k.battery"></span><input type="checkbox" data-al="battery"></label>
+      <label><span data-i18n="al.k.rf"></span><input type="checkbox" data-al="rf"></label>
+      <label><span data-i18n="al.k.offline"></span><input type="checkbox" data-al="offline"></label>
+      <div class="al-thr">
+        <label><span data-i18n="al.n.clipCount"></span><input type="number" id="al_clipCount" min="1" max="20"></label>
+        <label><span data-i18n="al.n.silentSecs"></span><input type="number" id="al_silentSecs" min="5" max="300"></label>
+        <label><span data-i18n="al.n.battBars"></span><input type="number" id="al_battBars" min="0" max="4"></label>
+        <label><span data-i18n="al.n.battMins"></span><input type="number" id="al_battMins" min="5" max="120"></label>
+        <label><span data-i18n="al.n.rfMin"></span><input type="number" id="al_rfMin" min="-100" max="-50"></label>
+      </div>
+      <p class="shure-hint" data-i18n="al.watchHint"></p>
+      <div id="alWatch"></div>
+    </div>
+    <ul class="al-list" id="alList"></ul>
+    <button type="button" class="set-mini" id="alClear" data-i18n="al.clear"></button>
+  </div>
+  <div id="profileSettings">
+    <p class="sub" data-i18n="set.profiles"></p>
+    <p class="shure-hint" data-i18n="pf.hint"></p>
+    <div class="pf-save"><input id="pfName" maxlength="40" autocomplete="off" data-i18n-ph="pf.ph"><button type="button" id="pfSave" data-i18n="pf.save"></button></div>
+    <ul class="shure-list" id="pfList"></ul>
+  </div>
+  <div id="mixSettings" hidden>
+    <p class="sub" data-i18n="set.mixes"></p>
+    <p class="shure-hint" data-i18n="mx.hint"></p>
+    <ul class="shure-list" id="mxList"></ul>
+  </div>
+  <div id="midiSettings" hidden>
+    <p class="sub" data-i18n="set.midi"></p>
+    <p class="shure-hint" data-i18n="midi.hint"></p>
+    <label><span data-i18n="midi.on"></span><input type="checkbox" id="midiOn"></label>
+    <label><span data-i18n="midi.in"></span><select id="midiIn"></select></label>
+    <label><span data-i18n="midi.out"></span><select id="midiOut"></select></label>
+    <p class="shure-hint" id="midiState"></p>
+  </div>
   <div class="actions">
     <button id="changeMixer" data-i18n="btn.changeMixer"></button>
     <button id="closeSettings" data-i18n="btn.close"></button>
   </div>
+</dialog>
+
+<dialog id="wlDlg" aria-labelledby="wlTitle">
+  <h2 id="wlTitle" data-i18n="wl.title"></h2>
+  <ul class="wl-list" id="wlList"></ul>
+  <p class="shure-hint" data-i18n="wl.hint"></p>
+  <div class="actions"><button id="wlCsv" data-i18n="wl.csv"></button><button id="wlClose" data-i18n="btn.close"></button></div>
+</dialog>
+
+<dialog id="mixQrDlg" aria-labelledby="mxQrTitle">
+  <h2 id="mxQrTitle"></h2>
+  <div class="qr"><img id="mxQrImg" alt=""><div><p data-i18n="mx.qrHint"></p><code id="mxQrUrl"></code></div></div>
+  <div class="actions"><button id="mxQrClose" data-i18n="btn.close"></button></div>
 </dialog>
 
 <dialog id="setup" aria-labelledby="setupTitle">
@@ -865,6 +1002,8 @@
   {
     const u = new URL(location.href), k = u.searchParams.get('k');
     if (k) { store.set('ck', k); u.searchParams.delete('k'); history.replaceState(null, '', u); }
+    const mk = u.searchParams.get('m'); // enlace de músico: solo su mezcla
+    if (mk) { store.set('mk', mk); u.searchParams.delete('m'); history.replaceState(null, '', u); }
   }
   let canControl = false, controlKey = '';
 
@@ -918,10 +1057,11 @@
       g.strips.forEach((s) => {
         const el = document.createElement('button');
         el.className = 'strip';
-        el.innerHTML = `<div class="clip"></div><div class="meter"><div class="cover"></div><div class="hold"></div>${ticks}</div>
+        el.innerHTML = `<div class="clip"></div><div class="meter"><div class="cover"></div><div class="hold"></div>${ticks}<div class="grc"></div><i class="gate"></i></div>
           <div class="foot"><span class="num"></span><span class="name"></span></div>`;
         const st = {
           el, cover: el.querySelector('.cover'), hold: el.querySelector('.hold'), clipEl: el.querySelector('.clip'),
+          grEl: el.querySelector('.grc'), gateEl: el.querySelector('.gate'),
           num: el.querySelector('.num'), name: el.querySelector('.name'),
           target: -90, disp: -90, peak: -90, peakAt: 0, maxSeen: -90, clip: false, lastCover: -1, lastHold: -1,
           group: g.name, label: '', gid: g.id, idx: g.strips.indexOf(s),
@@ -995,6 +1135,7 @@
       if (!st) return;
       st.num.textContent = s.num;
       st.name.textContent = s.name || '';
+      if (s.color) st.el.style.setProperty('--sc', s.color); else st.el.style.removeProperty('--sc');
       st.label = s.name ? `${s.num} ${s.name}` : `${groupName(g)} ${s.num}`;
       st.el.setAttribute('aria-label', st.label);
     }));
@@ -1033,7 +1174,7 @@
       if (h !== st.lastHold) { st.hold.style.transform = `translateY(${h}%)`; st.lastHold = h; }
     }
     if (bigCards.length) renderBig(now);
-    if (mode === 'control') for (const cs of cstrips) {
+    if (mode !== 'meters') for (const cs of mode === 'mix' ? mstrips : cstrips) {
       const src = meterSources(cs);
       let d = -90;
       for (const st of src) if (st.disp > d) d = st.disp;
@@ -1047,7 +1188,7 @@
   // --- Conexión con el servidor puente
   let ws, wantRaw = false;
   function connect() {
-    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?k=${encodeURIComponent(store.get('ck', ''))}`;
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?k=${encodeURIComponent(store.get('ck', ''))}&m=${encodeURIComponent(store.get('mk', ''))}`;
     ws = new WebSocket(url);
     ws.onopen = () => { if (wantRaw) ws.send(JSON.stringify({ type: 'raw', on: true })); };
     ws.onmessage = (e) => {
@@ -1080,6 +1221,17 @@
       else if (m.type === 'shure-scan') onShureScan(m);
       else if (m.type === 'nics') onNics(m);
       else if (m.type === 'shure-error') $('shErr').textContent = m.key ? t(m.key, m.p) : m.error;
+      else if (m.type === 'gr') onGr(m);
+      else if (m.type === 'scene') onScene(m);
+      else if (m.type === 'mixes') onMixes(m);
+      else if (m.type === 'sends') onSends(m);
+      else if (m.type === 'send') onSend(m);
+      else if (m.type === 'wireless') onWireless(m);
+      else if (m.type === 'alerts') onAlerts(m);
+      else if (m.type === 'alert') onAlert(m.a);
+      else if (m.type === 'profiles') onProfiles(m);
+      else if (m.type === 'profile-done') onProfileDone(m);
+      else if (m.type === 'lc-preset') onLcPreset(m.cfg);
     };
     ws.onclose = () => {
       setStatus('offline', t('st.offline'));
@@ -1108,7 +1260,7 @@
 
   // --- Ajustes
   const dlg = $('settings');
-  $('openSettings').onclick = () => dlg.showModal();
+  $('openSettings').onclick = () => { renderAlertSettings(); renderProfiles(); dlg.showModal(); };
   $('closeSettings').onclick = () => dlg.close();
   $('clearPeaks').onclick = () => { clearPeaks(null); sendClear({}); toast(t('toast.clipsCleared')); };
   // Borrado de picos y saturaciones, compartido entre todos los móviles.
@@ -1132,6 +1284,8 @@
     document.querySelector('meta[name="theme-color"]').content = optLight.checked ? '#e9ecf2' : '#141925';
   };
   optHold.onchange = () => { store.set('hold', optHold.checked); applyOpts(); };
+  $('optGr').checked = store.get('gr', true);
+  $('optGr').onchange = () => { showGr = $('optGr').checked; store.set('gr', showGr); onGr(grState); };
   optLight.onchange = () => { store.set('light', optLight.checked); applyOpts(); };
   optRaw.onchange = () => {
     wantRaw = optRaw.checked;
@@ -1154,12 +1308,17 @@
   let current = null, chosen = null, urls = [], ifaces = [], addrIndex = 0, qrRole = 'view';
   function onRole(m) {
     canControl = m.role === 'control';
+    mixLock = Number.isInteger(m.mix) ? m.mix : null; // enlace de músico: solo su mezcla
+    document.body.classList.toggle('musician', mixLock != null);
+    if (mixLock != null) setLocked(false); // en su propio móvil: sin bloqueo
     $('iemSettings').hidden = !canControl; // emisores de IEM: con control, haya o no control de la mesa
     controlKey = m.key || '';
     document.body.classList.toggle('viewer', !canControl);
     if (!canControl) { $('modes').hidden = true; $('ctrlSettings').hidden = true; setMode('meters', false); }
     else { $('modes').hidden = !ctrl; $('ctrlSettings').hidden = !ctrl; }
     showAddr(Math.min(addrIndex, Math.max(0, urls.length - 1)));
+    renderMixSettings();
+    midiStart();
   }
   $('roleView').onclick = () => { qrRole = 'view'; showAddr(addrIndex); };
   $('roleCtl').onclick = () => { qrRole = 'control'; showAddr(addrIndex); };
@@ -1208,6 +1367,8 @@
     $('cscroller').innerHTML = $('cpinned').innerHTML = '';
     $('layers').innerHTML = '';
     $('modes').hidden = true; $('lockBtn').hidden = true; $('ctrlSettings').hidden = true;
+    mix = null; mstrips = []; $('mixScroller').innerHTML = $('mixPinned').innerHTML = '';
+    grState = { comp: [], gate: [] }; $('sceneChip').hidden = true;
     setMode('meters', false);
     $('pinned').innerHTML = $('filters').innerHTML = '';
     showEmpty(t('empty.connecting'));
@@ -1307,7 +1468,7 @@
     setMode(store.get('mode', 'meters'), false);
   }
 
-  function makeStrip(g, i) {
+  function makeStrip(g, i, list = cstrips) {
     const el = document.createElement('div');
     const hasGain = g === 'ch'; // HA de la mesa o, si no hay, ganancia de un receptor Shure
     el.className = `cs g-${g}` + (g === 'main' ? ' master' : '') + (hasGain ? '' : ' nogain');
@@ -1315,7 +1476,7 @@
       <div class="cs-name"><b></b><i class="cs-link" hidden></i><span></span></div>
       <div class="cs-gain"><button class="gdn" aria-label="${t('a.gainDown')}">−</button><output><span></span><small class="gunit">dB</small></output><button class="gup" aria-label="${t('a.gainUp')}">+</button></div>
       <button class="cs-on" aria-pressed="false">ON</button>
-      <div class="cs-fader"><div class="cs-meter"><div class="cover"></div></div>
+      <div class="cs-fader"><div class="cs-meter"><div class="cover"></div><div class="grc"></div><i class="gate"></i></div>
         <div class="cs-track"><div class="zero" style="bottom:${fpos(0) * 100}%"></div><div class="cs-cap"></div></div>
         <div class="cs-scale" aria-hidden="true"></div></div>
       <output class="cs-val"></output>`;
@@ -1324,7 +1485,7 @@
       val: el.querySelector('.cs-val'), on: el.querySelector('.cs-on'), gain: el.querySelector('.cs-gain output span'),
       gunit: el.querySelector('.gunit'), grow: el.querySelector('.cs-gain'),
       num: el.querySelector('.cs-name b'), name: el.querySelector('.cs-name span'), link: el.querySelector('.cs-link'),
-      scale: el.querySelector('.cs-scale'), scaleH: -1,
+      scale: el.querySelector('.cs-scale'), scaleH: -1, grEl: el.querySelector('.cs-meter .grc'), gateEl: el.querySelector('.cs-meter .gate'),
       dragging: false, holdUntil: 0, lastCover: -1, sendTimer: null,
     };
     // Fader: arrastre relativo (no salta al punto tocado). Deslizar en horizontal sigue desplazando la lista.
@@ -1393,11 +1554,12 @@
         ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => b.addEventListener(t, stop));
       });
     }
-    cstrips.push(cs);
+    list.push(cs);
     return el;
   }
 
-  const data = (cs) => ctrl[cs.g][cs.i];
+  // Tira de envío de la mezcla abierta ('send') o tira de la mesa
+  const data = (cs) => (cs.g === 'send' ? (mix && mix.list[cs.i]) || MIX_EMPTY : ctrl[cs.g][cs.i]);
 
   // =============== Capas del modo Control ===============
   const csKey = (cs) => `${cs.g}:${cs.i}`;
@@ -1450,6 +1612,7 @@
     if ($('toggleStereo')) $('toggleStereo').setAttribute('aria-pressed', String(showStereo));
     sc.scrollLeft = 0;
     requestAnimationFrame(() => cstrips.forEach((cs) => { if (!cs.el.hidden) renderStrip(cs); }));
+    midi.bank = 0; midi.sent.clear(); setTimeout(midiRefresh, 50);
   }
   // Elegir las tiras de la capa Custom (en el orden en que se tocan).
   function openCustom() {
@@ -1861,7 +2024,8 @@
     cs.cap.style.transform = `translateY(${(1 - p) * cs.track.clientHeight}px)`;
     cs.val.textContent = fmtDb(d.fader);
     // DiGiCo: botón MUTE (encendido = silenciado), como en la mesa; las demás, ON (encendido = abierto)
-    const muteBtn = !!(ctrl.caps && ctrl.caps.muteButton);
+    const muteBtn = !!(ctrl.caps && ctrl.caps.muteButton) && cs.g !== 'send'; // los envíos llevan ON
+    if (midi.out) midiRefresh();
     cs.on.classList.toggle('mute', muteBtn);
     cs.on.textContent = muteBtn ? 'MUTE' : 'ON';
     cs.on.setAttribute('aria-pressed', String(muteBtn ? !d.on : !!d.on));
@@ -1888,6 +2052,7 @@
         const s = cs.g === 'vca' ? data(cs) : grp(cs.g) && grp(cs.g).strips[cs.i];
         cs.num.textContent = cs.g === 'ch' ? String(cs.i + 1) : (s && s.num) || `${cs.g === 'bus' ? 'MX' : cs.g === 'vca' ? 'V' : 'MT'}${cs.i + 1}`;
         cs.name.textContent = (s && s.name) || '';
+        cs.el.style.borderTopColor = (s && s.color) || ''; // color de la tira en la mesa
       } else {
         cs.num.textContent = 'ST';
         cs.name.textContent = ctrl.main.length === 2 ? t(cs.i === 0 ? 'main.a' : 'main.b') : t('main.one');
@@ -1898,9 +2063,10 @@
   // Medidores que acompañan a cada tira de control.
   function meterSources(cs) {
     if (!lastLayout) return [];
-    const gi = lastLayout.groups.findIndex((g) => g.id === cs.g);
+    const gid = cs.g === 'send' ? 'ch' : cs.g; // un envío muestra el medidor de su canal
+    const gi = lastLayout.groups.findIndex((g) => g.id === gid);
     if (gi < 0) return [];
-    if (cs.g !== 'main') return [strips[groupStart[gi] + cs.i]].filter(Boolean);
+    if (gid !== 'main') return [strips[groupStart[gi] + cs.i]].filter(Boolean);
     const n = lastLayout.groups[gi].strips.length, per = Math.max(1, Math.floor(n / ctrl.main.length));
     return Array.from({ length: per }, (_, k) => strips[groupStart[gi] + cs.i * per + k]).filter(Boolean);
   }
@@ -1917,9 +2083,11 @@
     if (m.key === 'fader' && cs && (cs.dragging || performance.now() < cs.holdUntil)) return; // el dedo manda
     ctrl[m.g][m.i][m.key] = m.key === 'fader' ? fromWire(m.value) : m.value;
     if (cs) renderStrip(cs);
+    for (const ms of mstrips) if (ms.g === m.g && ms.i === m.i) renderStrip(ms); // el master de la mezcla abierta
   }
 
   function send(cs, key, value) {
+    if (cs.g === 'send') { if (ws && ws.readyState === 1 && mix) ws.send(JSON.stringify({ type: 'send-set', bus: mix.bus, i: cs.i, key: key === 'fader' ? 'level' : 'on', value: toWire(value) })); return; }
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set', g: cs.g, i: cs.i, key, value: toWire(value) }));
   }
   function sendThrottled(cs, key, value) {
@@ -1933,12 +2101,19 @@
   }
 
   function setMode(m, save = true) {
-    mode = m === 'control' && ctrl && canControl ? 'control' : 'meters';
+    mode = m === 'control' && ctrl && canControl ? 'control' : m === 'mix' && mixAllowed() ? 'mix' : 'meters';
+    if (mixLock != null && mixAllowed()) mode = 'mix'; // el músico solo tiene su mezcla
     document.body.dataset.mode = mode;
     $('modes').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
-    $('lockBtn').hidden = mode !== 'control';
-    if (save) store.set('mode', mode);
+    $('lockBtn').hidden = mode === 'meters';
+    if (save && mixLock == null) store.set('mode', mode);
     if (mode === 'control') applyLayer();
+    if (mode === 'mix') {
+      fillMixBus();
+      const bus = mixLock != null ? mixLock : Number($('mixBus').value) || 0;
+      if (!mix || mix.bus !== bus) openMix(bus);
+    } else if (mix) { mix = null; mstrips = []; if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'mix-close' })); }
+    midi.bank = 0; midi.sent.clear(); midiRefresh();
   }
   $('modes').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
@@ -1952,7 +2127,7 @@
   }
   function touch() {
     clearTimeout(lockTimer);
-    if (autolock && !locked) lockTimer = setTimeout(() => { setLocked(true); toast(t('toast.lockedIdle')); }, 120000);
+    if (autolock && !locked && mixLock == null) lockTimer = setTimeout(() => { setLocked(true); toast(t('toast.lockedIdle')); }, 120000);
   }
   function lockedHint() { toast(t('toast.lockedHint')); }
   $('lockBtn').onclick = () => { setLocked(!locked); toast(t(locked ? 'toast.locked' : 'toast.unlocked')); };
@@ -1963,6 +2138,366 @@
   $('optAutolock').checked = autolock;
   $('optAutolock').onchange = () => { autolock = $('optAutolock').checked; store.set('autolock', autolock); touch(); };
   window.addEventListener('resize', () => cstrips.forEach(renderStrip));
+
+  // =============== Compresión y puerta ===============
+  // Reducción de ganancia de las entradas (dB): barra naranja que baja desde arriba por el borde derecho del medidor (compresor)
+  // y punto arriba cuando la puerta está cerrando. La mandan X32/M32, Yamaha y DiGiCo (según el modelo) y el simulador.
+  let grState = { comp: [], gate: [] }, showGr = store.get('gr', true);
+  const GR_RANGE = 24; // dB que ocupan el 60 % del medidor
+  function paintGr(bar, dot, i) {
+    if (!bar) return;
+    const c = showGr ? grState.comp[i] || 0 : 0, g = showGr ? grState.gate[i] || 0 : 0;
+    const h = Math.min(c, GR_RANGE) / GR_RANGE * 60;
+    if (bar._h !== h) { bar.style.height = `${h}%`; bar._h = h; }
+    if (dot) dot.classList.toggle('on', g > 2);
+  }
+  function onGr(m) {
+    grState = { comp: m.comp || [], gate: m.gate || [] };
+    const gi = lastLayout ? lastLayout.groups.findIndex((g) => g.id === 'ch') : -1;
+    if (gi >= 0) lastLayout.groups[gi].strips.forEach((_, i) => { const st = strips[groupStart[gi] + i]; if (st) paintGr(st.grEl, st.gateEl, i); });
+    for (const cs of cstrips) if (cs.g === 'ch') paintGr(cs.grEl, cs.gateEl, cs.i);
+    for (const cs of mstrips) if (cs.g === 'send') paintGr(cs.grEl, cs.gateEl, cs.i);
+  }
+
+  // =============== Escena actual ===============
+  function onScene(m) {
+    const txt = m.name ? `${m.num} · ${m.name}` : t('scene.num', { n: m.num });
+    $('sceneChip').hidden = m.num == null;
+    $('sceneChip').textContent = txt;
+    $('sceneChip').title = t('scene.title');
+    if (m.changed) toast(t('scene.toast', { s: txt }));
+  }
+  $('sceneChip').onclick = () => toast(`${t('scene.title')}: ${$('sceneChip').textContent}`);
+
+  // =============== Mezcla por músico ===============
+  // Envíos de todos los canales a un auxiliar. Con la clave de control se elige el auxiliar; con el enlace de un músico
+  // (?m=…) solo se ve el suyo. El master del auxiliar va fijo a la derecha.
+  let mixes = { buses: 0, linked: [], keys: {} }, mixLock = null, mix = null, mstrips = [], pendingQr = null;
+  const MIX_EMPTY = { fader: null, on: null, gain: null };
+  const mixAllowed = () => !!(ctrl && mixes.buses > 0 && (canControl || mixLock != null));
+  function busLabel(b) {
+    const g = lastLayout && lastLayout.groups.find((x) => x.id === 'bus'), s = g && g.strips[b];
+    return s ? (s.name ? `${s.num} ${s.name}` : s.num) : `Aux ${b + 1}`;
+  }
+  function onMixes(m) {
+    mixes = { buses: m.buses || 0, linked: m.linked || [], keys: m.keys || {} };
+    $('modeMix').hidden = !(canControl && mixes.buses > 0);
+    fillMixBus();
+    renderMixSettings();
+    if ((mixLock != null || store.get('mode', 'meters') === 'mix') && mode !== 'mix' && mixAllowed()) setMode('mix', false); // la mezcla llega después del control
+    else if (mode === 'mix' && !mixAllowed()) setMode('meters', false);
+  }
+  function fillMixBus() {
+    const sel = $('mixBus');
+    sel.innerHTML = Array.from({ length: mixes.buses }, (_, b) => `<option value="${b}">${esc(busLabel(b))}</option>`).join('');
+    sel.value = String(mixLock != null ? mixLock : Math.min(store.get('mixBus', 0), Math.max(0, mixes.buses - 1)));
+    sel.hidden = mixLock != null;
+    $('mixTitle').textContent = mixLock != null ? t('mix.yours', { bus: busLabel(mixLock) }) : '';
+  }
+  $('mixBus').onchange = () => { store.set('mixBus', Number($('mixBus').value)); openMix(Number($('mixBus').value)); };
+  function openMix(bus) {
+    if (!(bus >= 0) || !ws || ws.readyState !== 1) return;
+    mix = { bus, list: [] }; mstrips = [];
+    $('mixScroller').innerHTML = `<div class="ctrl-empty">${esc(t('mix.loading'))}</div>`; $('mixPinned').innerHTML = '';
+    ws.send(JSON.stringify({ type: 'mix-open', bus }));
+    const asked = mix;
+    setTimeout(() => { if (mix === asked && !mstrips.length && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'mix-open', bus })); }, 3000); // sin respuesta: se pide otra vez
+  }
+  function onSends(m) {
+    if (!mix || m.bus !== mix.bus) return;
+    mix.list = (m.list || []).map((x) => ({ fader: x.level == null ? null : fromWire(x.level), on: x.on, gain: null }));
+    mstrips = [];
+    const sc = $('mixScroller'), pin = $('mixPinned');
+    sc.innerHTML = pin.innerHTML = '';
+    if (!mix.list.length) sc.innerHTML = `<div class="ctrl-empty">${esc(t('mix.none'))}</div>`;
+    mix.list.forEach((_, i) => sc.appendChild(makeStrip('send', i, mstrips)));
+    if (ctrl && ctrl.bus[mix.bus]) pin.appendChild(makeStrip('bus', mix.bus, mstrips));
+    relabelMix();
+    requestAnimationFrame(() => mstrips.forEach(renderStrip));
+    onGr(grState);
+    midi.bank = 0; midi.sent.clear(); midiRefresh();
+  }
+  function onSend(m) {
+    if (!mix || m.bus !== mix.bus || !mix.list[m.i]) return;
+    const cs = mstrips.find((c) => c.g === 'send' && c.i === m.i);
+    if (m.key === 'level') { if (cs && (cs.dragging || performance.now() < cs.holdUntil)) return; mix.list[m.i].fader = fromWire(m.value); }
+    else mix.list[m.i].on = m.value;
+    if (cs) renderStrip(cs);
+  }
+  function relabelMix() {
+    const g = lastLayout && lastLayout.groups.find((x) => x.id === 'ch');
+    for (const cs of mstrips) {
+      if (cs.g === 'send') {
+        const s = g && g.strips[cs.i];
+        cs.num.textContent = s ? s.num : String(cs.i + 1); cs.name.textContent = (s && s.name) || ''; cs.el.style.borderTopColor = (s && s.color) || '';
+      } else { cs.el.classList.add('master'); cs.num.textContent = t('mix.master'); cs.name.textContent = busLabel(cs.i); }
+    }
+  }
+  // Enlaces de músico (solo en el ordenador de la app): uno por auxiliar, con su QR
+  function renderMixSettings() {
+    $('mixSettings').hidden = !(isLocal && canControl && mixes.buses > 0);
+    $('mxList').innerHTML = '';
+    for (let b = 0; b < mixes.buses; b++) {
+      const linked = mixes.linked.includes(b), li = document.createElement('li');
+      li.innerHTML = `<span>${esc(busLabel(b))}</span>` + (linked ? `<button class="mqr">${esc(t('mx.qr'))}</button><button class="rm">${esc(t('mx.remove'))}</button>` : `<button class="mk">${esc(t('mx.link'))}</button>`);
+      const q = li.querySelector('.mqr'), rm = li.querySelector('.rm'), mk = li.querySelector('.mk');
+      if (q) q.onclick = () => openMixQr(b);
+      if (rm) rm.onclick = () => confirmTap(rm, () => ws.send(JSON.stringify({ type: 'mix-revoke', bus: b })));
+      if (mk) mk.onclick = () => { pendingQr = b; ws.send(JSON.stringify({ type: 'mix-link', bus: b })); };
+      $('mxList').appendChild(li);
+    }
+    if (pendingQr != null && mixes.keys[pendingQr]) { const b = pendingQr; pendingQr = null; openMixQr(b); }
+  }
+  function openMixQr(b) {
+    const k = mixes.keys[b];
+    if (!k) return;
+    $('mxQrTitle').textContent = t('mx.qrTitle', { bus: busLabel(b) });
+    $('mxQrImg').src = `qr.svg?i=${addrIndex}&role=mix&bus=${b}&t=${Date.now()}`;
+    $('mxQrUrl').textContent = urls[addrIndex] ? `${urls[addrIndex].replace(/\/$/, '')}/?m=${k}` : t('phone.noNet');
+    $('mixQrDlg').showModal();
+  }
+  $('mxQrClose').onclick = () => $('mixQrDlg').close();
+
+  // =============== Inalámbricos ===============
+  let wlList = [];
+  const wlLow = (w) => w.bars != null && (w.bars <= (alertCfg.battBars ?? 1) || (w.mins != null && w.mins <= (alertCfg.battMins ?? 30)));
+  function onWireless(m) {
+    wlList = m.list || [];
+    $('wlBtn').hidden = !wlList.length;
+    const bad = wlList.filter((w) => wlLow(w) || !w.online).length;
+    $('wlBadge').hidden = !bad; $('wlBadge').textContent = bad;
+    // en la tira de medidores, el número del canal en rojo si su petaca está baja
+    const lowCh = new Set(wlList.filter(wlLow).flatMap((w) => w.chans.map((c) => c - 1)));
+    const gi = lastLayout ? lastLayout.groups.findIndex((g) => g.id === 'ch') : -1;
+    if (gi >= 0) lastLayout.groups[gi].strips.forEach((_, i) => { const st = strips[groupStart[gi] + i]; if (st) st.el.classList.toggle('batt-low', lowCh.has(i)); });
+    if ($('wlDlg').open) renderWl();
+  }
+  function wlSpark(hist) { // minutos de batería en las últimas horas
+    const pts = hist.filter((h) => h[2] != null);
+    if (pts.length < 2) return '';
+    const t0 = pts[0][0], span = Math.max(1, pts[pts.length - 1][0] - t0), max = Math.max(60, ...pts.map((h) => h[2]));
+    return `<svg class="wl-spark" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points="${pts.map((h) => `${((h[0] - t0) / span * 100).toFixed(1)},${(29 - h[2] / max * 27).toFixed(1)}`).join(' ')}"/></svg>`;
+  }
+  function renderWl() {
+    $('wlList').innerHTML = wlList.length ? wlList.map((w) => {
+      const label = w.name || `${w.ip} · ${w.ch}`;
+      const batt = !w.online ? t('wl.off') : w.bars == null ? t('wl.noTx') : w.mins != null ? t('wl.mins', { m: w.mins }) : `${w.bars}/5`;
+      const rf = w.rf == null ? '—' : t('wl.rf', { v: w.rf }), rfPct = w.rf == null ? 0 : Math.max(0, Math.min(100, (w.rf + 100) / 60 * 100));
+      return `<li class="${wlLow(w) ? 'low' : ''}"><i class="dot${w.online ? ' on' : ''}"></i>
+        <div class="wl-main"><b>${esc(label)}</b><small>${esc(t('wl.where', { ip: w.ip, ch: w.ch, chans: w.chans.join(', ') }))}</small></div>
+        <div class="wl-batt"><span class="bars">${Array.from({ length: 5 }, (_, k) => `<i class="${w.bars != null && k < w.bars ? 'on' : ''}"></i>`).join('')}</span><small>${esc(batt)}</small></div>
+        <div class="wl-rf"><span class="rfbar"><i style="width:${rfPct}%"></i></span><small>${esc(rf)}</small></div>${wlSpark(w.hist || [])}</li>`;
+    }).join('') : `<li class="empty-row">${esc(t('wl.empty'))}</li>`;
+  }
+  $('wlBtn').onclick = () => { renderWl(); $('wlDlg').showModal(); };
+  $('wlClose').onclick = () => $('wlDlg').close();
+  $('wlCsv').onclick = () => { location.href = 'inalambricos.csv'; };
+
+  // =============== Avisos ===============
+  // Llegan del Mac a todos los dispositivos: franja arriba, sonido y vibración (se puede quitar en cada dispositivo) y,
+  // si se permite, notificación del sistema cuando la app no está delante (en la app de Mac o en un navegador con https/localhost).
+  let alertList = [], alertCfg = {}, audioCtx = null;
+  const ALERT_NUMS = ['clipCount', 'silentSecs', 'battBars', 'battMins', 'rfMin'];
+  function alertText(a) {
+    const p = { ...a.p };
+    if (a.kind === 'battery') p.mins = a.p.mins != null ? t('al.mins', { m: a.p.mins }) : '';
+    if (a.kind === 'clip' && typeof p.peak === 'number') p.peak = fmtNum(p.peak);
+    return t('al.t.' + a.kind, p);
+  }
+  function onAlerts(m) { alertList = m.list || []; alertCfg = m.prefs || {}; renderAlertSettings(); }
+  function onAlert(a) {
+    if (!a) return;
+    alertList.push(a);
+    if (alertList.length > 20) alertList.shift();
+    const box = $('alerts'), el = document.createElement('div');
+    el.className = `alert ${a.level === 'hot' ? 'hot' : ''}`;
+    el.innerHTML = `<span>${esc(alertText(a))}</span><time>${esc(fmtClock(a.t))}</time><button aria-label="${esc(t('btn.close'))}">×</button>`;
+    el.querySelector('button').onclick = () => el.remove();
+    box.prepend(el);
+    while (box.children.length > 3) box.lastChild.remove();
+    setTimeout(() => el.remove(), a.level === 'hot' ? 60000 : 20000);
+    renderAlertList();
+    if (store.get('alertSound', true)) { beep(a.level === 'hot' ? 2 : 1); if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(a.level === 'hot' ? [200, 100, 200] : 200); } // sin un toque previo el navegador no deja vibrar
+    if ('Notification' in window && Notification.permission === 'granted' && (document.hidden || !document.hasFocus())) {
+      try { new Notification(t('title'), { body: alertText(a), tag: a.kind }); } catch {}
+    }
+  }
+  function beep(n) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      for (let k = 0; k < n; k++) {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t0 = audioCtx.currentTime + k * 0.22;
+        o.frequency.value = 880;
+        g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+        o.connect(g).connect(audioCtx.destination); o.start(t0); o.stop(t0 + 0.18);
+      }
+    } catch {}
+  }
+  // El navegador solo deja sonar después de un toque: el audio se prepara con el primero
+  document.addEventListener('pointerdown', () => { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch {} }, { once: true });
+  const sendAlertPrefs = (part) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'alert-prefs', prefs: { ...alertCfg, ...part } })); };
+  function renderAlertSettings() {
+    document.querySelectorAll('#alPrefs [data-al]').forEach((x) => { x.checked = alertCfg[x.dataset.al] !== false; });
+    ALERT_NUMS.forEach((k) => { const x = $('al_' + k); if (document.activeElement !== x) x.value = alertCfg[k] ?? ''; });
+    const watch = new Set(alertCfg.watch || []);
+    $('alWatch').innerHTML = strips.filter((st) => st.gid !== 'main').map((st) => `<button class="pick-chip" data-k="${st.gid}:${st.idx}" aria-pressed="${watch.has(`${st.gid}:${st.idx}`)}">${esc(st.label)}</button>`).join('');
+    $('alWatch').querySelectorAll('.pick-chip').forEach((b) => b.onclick = () => {
+      const w = new Set(alertCfg.watch || []);
+      if (w.has(b.dataset.k)) w.delete(b.dataset.k); else if (w.size < 12) w.add(b.dataset.k); else return toast(t('al.watchMax'));
+      sendAlertPrefs({ watch: [...w] });
+    });
+    $('alSound').checked = store.get('alertSound', true);
+    const can = 'Notification' in window && window.isSecureContext;
+    $('alNotifRow').hidden = !can;
+    if (can) {
+      const perm = Notification.permission;
+      $('alNotif').textContent = t(perm === 'granted' ? 'al.notifGranted' : perm === 'denied' ? 'al.notifDenied' : 'al.notifOn');
+      $('alNotif').disabled = perm !== 'default';
+      $('alNotifHint').textContent = t('al.notifHint');
+    }
+    renderAlertList();
+  }
+  function renderAlertList() {
+    $('alList').innerHTML = alertList.length ? alertList.slice(-10).reverse().map((a) => `<li class="${a.level === 'hot' ? 'hot' : ''}"><time>${esc(fmtClock(a.t))}</time><span>${esc(alertText(a))}</span></li>`).join('') : `<li>${esc(t('al.none'))}</li>`;
+  }
+  document.querySelectorAll('#alPrefs [data-al]').forEach((x) => x.onchange = () => sendAlertPrefs({ [x.dataset.al]: x.checked }));
+  ALERT_NUMS.forEach((k) => { $('al_' + k).onchange = () => { const v = Number($('al_' + k).value); if (Number.isFinite(v)) sendAlertPrefs({ [k]: v }); }; });
+  $('alSound').onchange = () => store.set('alertSound', $('alSound').checked);
+  $('alNotif').onclick = () => { Notification.requestPermission().then(renderAlertSettings); };
+  $('alClear').onclick = () => confirmTap($('alClear'), () => ws.send(JSON.stringify({ type: 'alerts-clear' })));
+
+  // =============== Perfiles de bolo ===============
+  let profiles = [];
+  function onProfiles(m) { profiles = m.list || []; renderProfiles(); }
+  function renderProfiles() {
+    $('pfList').innerHTML = profiles.length ? '' : `<li class="empty-row">${esc(t('pf.none'))}</li>`;
+    for (const pr of [...profiles].sort((a, b) => b.t - a.t)) {
+      const li = document.createElement('li');
+      li.innerHTML = `<span>${esc(pr.name)}<small>${esc(new Date(pr.t).toLocaleString(LANG, { dateStyle: 'short', timeStyle: 'short' }))}${pr.mixer ? ' · ' + esc(pr.mixer) : ''}</small></span><button class="ld">${esc(t('pf.load'))}</button><button class="rm">${esc(t('pf.del'))}</button>`;
+      const ld = li.querySelector('.ld'), rm = li.querySelector('.rm');
+      ld.onclick = () => confirmTap(ld, () => ws.send(JSON.stringify({ type: 'profile-load', name: pr.name })));
+      rm.onclick = () => confirmTap(rm, () => ws.send(JSON.stringify({ type: 'profile-del', name: pr.name })));
+      $('pfList').appendChild(li);
+    }
+  }
+  $('pfSave').onclick = () => {
+    const name = $('pfName').value.trim();
+    if (!name) { $('pfName').focus(); return; }
+    const go = () => { ws.send(JSON.stringify({ type: 'profile-save', name })); $('pfName').value = ''; };
+    if (profiles.some((x) => x.name === name)) confirmTap($('pfSave'), go); else go(); // sobrescribir: segundo toque
+  };
+  function onProfileDone(m) { toast(t({ save: 'pf.saved', load: 'pf.loaded', del: 'pf.deleted' }[m.action] || 'pf.saved', { name: m.name })); }
+  // Al cargar un perfil, la selección del line check que guardaba pasa a este dispositivo
+  function onLcPreset(cfg) {
+    if (!cfg || !Array.isArray(cfg.keys)) return;
+    store.set('lcSel2', cfg.keys);
+    store.set('lcPairs', lcPairsText(cfg.pairs || []));
+    store.set('lcOrder', cfg.keys.map(lcNumOf).join(', '));
+    store.set('lcMode', cfg.mode === 'free' ? 'free' : 'guided');
+    store.set('lcOnCross', cfg.onCross !== 'wait');
+    store.set('lcLr', !!cfg.lrCheck);
+    if ($('lcDlg').open) renderLc();
+  }
+
+  // =============== Superficie de control MIDI (Mackie Control) ===============
+  // Superficies en modo MCU (Behringer X-Touch, iCON…): 8 faders motorizados (pitch bend en los canales MIDI 1-8; el 9 es el
+  // master), MUTE (notas 16-23), bancos (notas 46/47 de 8 en 8, 48/49 de 1 en 1), toque de fader (notas 104-112), pantallas
+  // (SysEx de Mackie) y medidores (aftertouch de canal). Mueve las tiras visibles del modo Control o de la mezcla abierta.
+  // Solo donde hay Web MIDI (la app de Mac, Chrome o Edge). No tiene en cuenta el bloqueo de la pantalla táctil.
+  const midi = { access: null, in: null, out: null, bank: 0, touched: new Set(), sent: new Map(), on: store.get('midiOn', false) };
+  const midiSupported = () => typeof navigator.requestMIDIAccess === 'function';
+  function midiStrips() {
+    if (mode === 'mix') return mstrips.filter((cs) => cs.g === 'send');
+    if (mode !== 'control') return [];
+    return [...$('cscroller').querySelectorAll('.cs')].map((el) => cstrips.find((cs) => cs.el === el)).filter((cs) => cs && !cs.el.hidden);
+  }
+  function midiBank() { const all = midiStrips(); midi.bank = Math.max(0, Math.min(midi.bank, all.length - 8)); return all.slice(midi.bank, midi.bank + 8); }
+  const midiMaster = () => (mode === 'mix' ? mstrips.find((cs) => cs.g === 'bus') : mode === 'control' ? cstrips.find((cs) => cs.g === 'main') : null);
+  function midiSend(bytes) { try { if (midi.out) midi.out.send(bytes); } catch {} }
+  function midiFader(n, cs) { // n: 0-7 canales, 8 = master
+    if (midi.touched.has(n)) return;
+    const v = cs ? Math.round(fpos(data(cs).fader) * 16383) : 0;
+    if (midi.sent.get('f' + n) === v) return;
+    midi.sent.set('f' + n, v);
+    midiSend([0xe0 | n, v & 0x7f, v >> 7]);
+  }
+  function midiLed(note, on) { const v = on ? 0x7f : 0; if (midi.sent.get('n' + note) === v) return; midi.sent.set('n' + note, v); midiSend([0x90, note, v]); }
+  function midiText(n, top, bottom) {
+    const fit = (x) => (String(x || '').normalize('NFD').replace(/[^\x20-\x7e]/g, '') + '       ').slice(0, 7);
+    const v = fit(top) + fit(bottom);
+    if (midi.sent.get('t' + n) === v) return;
+    midi.sent.set('t' + n, v);
+    midiSend([0xf0, 0, 0, 0x66, 0x14, 0x12, n * 7, ...[...fit(top)].map((c) => c.charCodeAt(0)), 0xf7]);
+    midiSend([0xf0, 0, 0, 0x66, 0x14, 0x12, 56 + n * 7, ...[...fit(bottom)].map((c) => c.charCodeAt(0)), 0xf7]);
+  }
+  function midiRefresh() {
+    if (!midi.out) return;
+    const list = midiBank();
+    for (let n = 0; n < 8; n++) {
+      const cs = list[n];
+      midiFader(n, cs);
+      midiLed(0x10 + n, !!cs && data(cs).on === false); // LED de MUTE encendido = tira sin señal
+      midiText(n, cs ? cs.num.textContent : '', cs ? cs.name.textContent : '');
+    }
+    midiFader(8, midiMaster());
+  }
+  setInterval(() => { // medidores de la superficie, unas 8 veces por segundo
+    if (!midi.out) return;
+    midiBank().forEach((cs, n) => {
+      let d = -90;
+      for (const st of meterSources(cs)) if (st.disp > d) d = st.disp;
+      midiSend([0xd0, (n << 4) | Math.max(0, Math.min(12, Math.round((d + 60) / 5)))]);
+    });
+  }, 125);
+  function midiMessage(e) {
+    const [st, a, b] = e.data, kind = st & 0xf0, ch = st & 0x0f, list = midiBank();
+    if (kind === 0xe0) { // fader
+      const cs = ch === 8 ? midiMaster() : list[ch];
+      if (!cs) return;
+      let db = fdb((a | (b << 7)) / 16383);
+      if (db > faderLimit && !(data(cs).fader > faderLimit)) db = faderLimit;
+      data(cs).fader = db;
+      midi.sent.set('f' + ch, a | (b << 7));
+      renderStrip(cs); sendThrottled(cs, 'fader', db);
+      return;
+    }
+    if (kind === 0x90 && b > 0) {
+      if (a >= 0x10 && a <= 0x17) { const cs = list[a - 0x10]; if (cs) { const d = data(cs); d.on = !d.on; renderStrip(cs); send(cs, 'on', d.on); } }
+      else if (a === 0x2e || a === 0x2f || a === 0x30 || a === 0x31) {
+        midi.bank += { 0x2e: -8, 0x2f: 8, 0x30: -1, 0x31: 1 }[a];
+        midi.sent.clear(); midiRefresh(); midiStatus();
+      } else if (a >= 0x68 && a <= 0x70) midi.touched.add(a - 0x68);
+      return;
+    }
+    if ((kind === 0x90 || kind === 0x80) && a >= 0x68 && a <= 0x70) { midi.touched.delete(a - 0x68); midi.sent.delete('f' + (a - 0x68)); midiRefresh(); }
+  }
+  function midiStatus() {
+    if (!midi.access) return;
+    const n = midiStrips().length;
+    $('midiState').textContent = !midi.access.inputs.size ? t('midi.none') : midi.in ? t('midi.ok', { name: midi.in.name, a: n ? midi.bank + 1 : 0, b: Math.min(n, midi.bank + 8) }) : '';
+  }
+  async function midiStart() {
+    $('midiSettings').hidden = !(midiSupported() && canControl);
+    if (!midi.on || !midiSupported() || !canControl) { if (midi.in) midi.in.onmidimessage = null; midi.in = midi.out = null; return; }
+    try { midi.access = midi.access || await navigator.requestMIDIAccess({ sysex: true }); } // SysEx: textos en las pantallas
+    catch { try { midi.access = await navigator.requestMIDIAccess(); } catch { $('midiState').textContent = t('midi.denied'); return; } }
+    midi.access.onstatechange = midiPorts;
+    midiPorts();
+  }
+  function midiPorts() {
+    const ins = [...midi.access.inputs.values()], outs = [...midi.access.outputs.values()];
+    const fill = (sel, list, want) => { sel.innerHTML = list.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join(''); if (list.some((x) => x.id === want)) sel.value = want; };
+    fill($('midiIn'), ins, store.get('midiIn', '')); fill($('midiOut'), outs, store.get('midiOut', ''));
+    if (midi.in) midi.in.onmidimessage = null;
+    midi.in = ins.find((x) => x.id === $('midiIn').value) || null;
+    midi.out = outs.find((x) => x.id === $('midiOut').value) || null;
+    if (midi.in) midi.in.onmidimessage = midiMessage;
+    midi.sent.clear(); midiRefresh(); midiStatus();
+  }
+  $('midiOn').checked = midi.on;
+  $('midiOn').onchange = () => { midi.on = $('midiOn').checked; store.set('midiOn', midi.on); midiStart(); };
+  $('midiIn').onchange = () => { store.set('midiIn', $('midiIn').value); midiPorts(); };
+  $('midiOut').onchange = () => { store.set('midiOut', $('midiOut').value); midiPorts(); };
 
   // =============== Registro del bolo ===============
   let clipEvents = [], clipInit = false, histData = null, histTimer = null;

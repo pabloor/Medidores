@@ -17,6 +17,7 @@ const PROFILES = {
     label: 'X32 / M32',
     control: true,                       // fader, ON y ganancia (ver x32control.js)
     meters: ['/meters/1', '/meters/2'], // 1: 32 canales + reducciones de ganancia; 2: buses, matrices, main
+    gr: { src: 0, gate: 32, comp: 64, count: 32 }, // en /meters/1: 32 de puerta y 32 de dinámica (factor lineal, 1.0 = sin reducción)
     decode: 'float',                     // float32 lineal, 1.0 = 0 dBFS
     groups: [
       { id: 'ch', name: 'Canales', src: 0, start: 0, count: 32, num: (i) => `${i}`, nameAddr: (i) => `/ch/${pad2(i)}/config/name` },
@@ -194,6 +195,12 @@ class Behringer extends EventEmitter {
     });
     this.emit('levels', levels);
     this.emit('raw', this.raw);
+    // Reducción de ganancia de puerta y compresor (X32/M32): el bloque trae el factor de ganancia; en dB es ≤ 0
+    const gr = this.profile.gr;
+    if (gr && idx === gr.src && out.length >= gr.comp + gr.count) {
+      const red = (k) => Math.max(0, -(out[k] ?? 0));
+      this.emit('gr', { comp: Array.from({ length: gr.count }, (_, k) => red(gr.comp + k)), gate: Array.from({ length: gr.count }, (_, k) => red(gr.gate + k)) });
+    }
   }
 
   emitLayout() {

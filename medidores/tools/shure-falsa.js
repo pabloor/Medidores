@@ -1,9 +1,16 @@
 // Emula un receptor Shure (AD4D) en TCP 2202 para probar la integración sin equipo.
 // Uso: node tools/shure-falsa.js   y en la app: Ajustes → Receptores Shure → IP 127.0.0.1, canal 1 → 25, canal 2 → 26.
 // Cada 8 s "alguien" cambia la ganancia del canal 2 en el receptor (para probar la sincronización).
+// También contesta batería, RF y nombre (panel de inalámbricos): la petaca del canal 1 se va gastando (de 5 rayas a 0 en
+// unos 4 minutos) y el canal 2 pierde RF cada 30 s durante 6 s. Al llegar a 0, la del canal 1 "se cambia" y vuelve a 5.
 const net = require('net');
 const gain = { 1: 30, 2: 28 }; // valor Shure: dB + 18  (30 = +12 dB, 28 = +10 dB)
 const clients = new Set();
+const t0 = Date.now();
+const names = { 1: 'Voz', 2: 'Coro 1' };
+const batt = (ch) => { const left = ch === '1' ? Math.max(0, 300 - ((Date.now() - t0) / 1000 * 1.25) % 300) : 280; return { bars: Math.round(left / 60), mins: Math.round(left) }; };
+const rf = (ch) => (ch === '2' && ((Date.now() - t0) / 1000) % 30 < 6 ? 128 - 95 : 128 - 50 + Math.round(Math.random() * 4));
+const pad = (n, w = 3) => String(n).padStart(w, '0');
 const rep = (ch) => `< REP ${ch} AUDIO_GAIN ${String(gain[ch]).padStart(3, '0')} >`;
 net.createServer((c) => {
   clients.add(c);
@@ -14,6 +21,12 @@ net.createServer((c) => {
     while ((end = buf.indexOf('>')) >= 0) {
       const [cmd, ch, key, val] = buf.slice(0, end).replace('<', '').trim().split(/\s+/);
       buf = buf.slice(end + 1);
+      if (cmd === 'GET' && ch in gain) {
+        if (key === 'BATT_BARS') { c.write(`< REP ${ch} BATT_BARS ${pad(batt(ch).bars)} >`); continue; }
+        if (key === 'BATT_RUN_TIME') { c.write(`< REP ${ch} BATT_RUN_TIME ${pad(batt(ch).mins, 5)} >`); continue; }
+        if (key === 'CHAN_NAME') { c.write(`< REP ${ch} CHAN_NAME {${names[ch].padEnd(31)}} >`); continue; }
+        if (key === 'RX_RF_LVL') { c.write(`< REP ${ch} RX_RF_LVL ${pad(rf(ch))} >`); continue; }
+      }
       if (key !== 'AUDIO_GAIN' || !(ch in gain)) continue;
       if (cmd === 'SET') { gain[ch] = Math.max(0, Math.min(60, Number(val))); for (const x of clients) x.write(rep(ch)); }
       if (cmd === 'GET') c.write(rep(ch));

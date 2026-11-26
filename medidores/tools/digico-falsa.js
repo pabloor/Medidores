@@ -30,6 +30,12 @@ sock.on('message', (b) => {
     const f = Buffer.alloc(4); f.writeFloatBE(Math.round((0.5 + 0.5 * Math.sin(Date.now() / 700)) * 100) / 100); // valor que cambia con el tiempo
     sock.send(Buffer.concat([pad(addr), f]), PORT, HOST);
   }
+  else if (m.address === '/Snapshots/Current_Snapshot/?') { const n = 1 + Math.floor(Date.now() / 30000) % 4; reply('/Snapshots/Current_Snapshot', [n, ['Intro', 'Verso', 'Estribillo', 'Puente'][n - 1]]); } // cambia cada 30 s
+  else if (/^\/Input_Channels\/\d+\/Aux_Send\/\d+\/(send_level|send_on)\/\?$/.test(m.address)) { // envíos a auxiliares (rutas supuestas, como en el driver)
+    const a = m.address.slice(0, -2), ch = Number(a.split('/')[2]);
+    reply(a, [osc.float(ctl.has(a) ? ctl.get(a) : /send_on$/.test(a) ? 1 : ch % 3 === 0 ? -150 : -10 + (ch % 7))]);
+  }
+  else if (/^\/Input_Channels\/\d+\/Aux_Send\/\d+\/(send_level|send_on)$/.test(m.address) && m.args.length) { ctl.set(m.address, m.args[0]); console.log(`[set] ${m.address} = ${m.args[0]}`); }
   else if (m.address === '/Input_Channels/7/Channel_Input/trim/?') reply('/Input_Channels/7/Channel_Input/trim', [osc.float(TRIM7)]);
   else if (/^\/(Input_Channels|Aux_Outputs|Group_Outputs|Matrix_Outputs|Control_Groups)\/\d+\/(fader|mute|Channel_Input\/analog_gain)\/\?$/.test(m.address)) {
     // consulta de un parámetro de control: responde con el valor guardado (o uno por defecto)
@@ -69,6 +75,9 @@ setInterval(() => {
       const hold = Math.max(18, Math.round(18 + ((t * 4) % 12)));
       return (hold << 16) | lvl;
     }
+    // reducción del compresor (Dynamics/GR_meter_1) de los canales 1-4: sube y baja entre 0 y 12 dB
+    const gm = /^\/Input_Channels\/(\d+)\/Dynamics\/GR_meter_1$/.exec(paths.get(id) || '');
+    if (gm) { const n = Number(gm[1]); const g = n <= 4 ? Math.round(6 + 6 * Math.sin(t * 2 + n)) : 0; return (g << 16) | g; }
     // el grupo 2 tiene señal solo por la derecha (-20 dB): Medidores debe mostrar el lado más alto
     if (/^\/Group_Outputs\/2\/.*\/right$/.test(paths.get(id) || '')) return (20 << 16) | 20;
     return (126 << 16) | 126;

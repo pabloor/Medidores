@@ -5,6 +5,16 @@ const CH = ['Bombo', 'Caja', 'Hi-hat', 'Tom 1', 'Tom 2', 'Base', 'OH L', 'OH R',
   'Guit 1', 'Guit 2', 'Teclas L', 'Teclas R', 'Acúst.', 'Voz', 'Coro 1', 'Coro 2', 'Presen.', 'PC L', 'PC R', 'Talk'];
 const BUS = ['Mon 1', 'Mon 2', 'Mon 3', 'Mon 4', 'IEM L', 'IEM R', 'Sub', 'Rev'];
 
+// Colores de tira, como los que pone el técnico en la mesa (batería roja, bajo amarillo, guitarras verdes…)
+const CH_COLOR = ['#e5534b', '#e5534b', '#e5534b', '#e5534b', '#e5534b', '#e5534b', '#e5534b', '#e5534b', '#e0b43a', '#e0b43a',
+  '#57ab5a', '#57ab5a', '#539bf5', '#539bf5', '#57ab5a', '#e275ad', '#e275ad', '#e275ad', '#986ee2', '#76e3ea', '#76e3ea', '#8a93a3'];
+const BUS_COLOR = ['#f0883e', '#f0883e', '#f0883e', '#f0883e', '#986ee2', '#986ee2', '#8a93a3', '#8a93a3'];
+const SEND_BUSES = 6; // Mon 1-4 e IEM L/R son auxiliares (tienen envíos); Sub y Rev, no
+const SCENES = ['Prueba de sonido', 'Intro', 'Canción 1', 'Canción 2 · balada', 'Canción 3', 'Bis'];
+// Canales con compresor (reducción según el nivel) y con puerta (cierra en silencio)
+const COMP = { Bombo: -18, Caja: -16, 'Bajo DI': -20, 'Bajo mic': -20, Voz: -22, 'Coro 1': -20, 'Coro 2': -20, 'Acúst.': -18 };
+const GATE = new Set(['Bombo', 'Caja', 'Tom 1', 'Tom 2', 'Base']);
+
 const frac = (x) => x - Math.floor(x);
 const noise = () => (Math.random() - 0.5) * 2;
 
@@ -13,14 +23,25 @@ class Simulator extends EventEmitter {
     this.emit('layout', {
       mixer: { name: 'Simulador', model: 'Simulador', ip: 'local' },
       groups: [
-        { id: 'ch', name: 'Canales', strips: CH.map((n, i) => ({ num: String(i + 1), name: n })) },
-        { id: 'bus', name: 'Buses', strips: BUS.map((n, i) => ({ num: `B${i + 1}`, name: n })) },
+        { id: 'ch', name: 'Canales', strips: CH.map((n, i) => ({ num: String(i + 1), name: n, color: CH_COLOR[i] })) },
+        { id: 'bus', name: 'Buses', strips: BUS.map((n, i) => ({ num: `B${i + 1}`, name: n, color: BUS_COLOR[i] })) },
         { id: 'main', name: 'Main', strips: [{ num: 'L', name: '' }, { num: 'R', name: '' }] },
       ],
     });
     this.emit('status', { state: 'connected', detail: 'Simulador (sin mesa conectada)', key: 'st.sim' });
 
+    // Control simulado: fader, ON y previo de cada tira, y los envíos de cada canal a los auxiliares
+    const strip = (fader, gain = null) => ({ fader, on: true, gain, link: 0, stereo: false, pair: -1 });
+    this.cs = { ch: CH.map((n, i) => strip(n === 'Talk' ? -Infinity : -5 + (i % 4) * 2, 24 + (i % 5) * 4)), bus: BUS.map(() => strip(0)), main: [strip(0), strip(0)], mtx: [], vca: [] };
+    this.cs.ch[6].pair = 7; this.cs.ch[7].pair = 6; this.cs.ch[12].pair = 13; this.cs.ch[13].pair = 12; // OH y Teclas en estéreo
+    this.sends = Array.from({ length: SEND_BUSES }, (_, b) => CH.map((n, i) => ({ level: (i + b) % 3 === 0 ? -Infinity : -10 + ((i * 7 + b * 3) % 15), on: true })));
+    this.emit('control', this.encodeControl());
+    this.scene = 0;
+    this.emit('scene', { num: 1, name: SCENES[0] });
+    this.sceneTimer = setInterval(() => { this.scene = (this.scene + 1) % SCENES.length; this.emit('scene', { num: this.scene + 1, name: SCENES[this.scene] }); }, 45000);
+
     const t0 = Date.now();
+    let tick = 0;
     this.timer = setInterval(() => {
       const t = (Date.now() - t0) / 1000;
       const beat = t * 2; // 120 bpm
@@ -40,7 +61,36 @@ class Simulator extends EventEmitter {
       const bus = BUS.map((_, i) => mix - 4 - i + noise() * 1.5);
       const main = [mix - 1 + noise(), mix - 1.5 + noise()];
       this.emit('levels', [ch, bus, main].map((g) => g.map((v) => Math.min(0, v))));
+      // Reducción de ganancia (dB, positiva): compresor por encima de su umbral, puerta cerrada en silencio
+      if (++tick % 3 === 0) {
+        this.emit('gr', {
+          comp: CH.map((n, i) => (COMP[n] != null && ch[i] > COMP[n] ? Math.min(18, (ch[i] - COMP[n]) * 0.7) : 0)),
+          gate: CH.map((n, i) => (GATE.has(n) && ch[i] < -42 ? 40 : 0)),
+        });
+      }
     }, 33);
+  }
+
+  encodeControl() {
+    return { caps: { gain: { min: -6, max: 66, step: 1 }, faderMax: 10, mainNames: ['Stereo'], sends: true, sendBuses: SEND_BUSES }, ...this.cs };
+  }
+  set(g, i, key, value) {
+    const c = this.cs && this.cs[g] && this.cs[g][i];
+    if (!c || !['fader', 'on', 'gain'].includes(key)) return undefined;
+    if (key === 'fader') value = value === -Infinity || value <= -90 ? -Infinity : Math.min(10, Math.round(value * 10) / 10);
+    else if (key === 'gain') { if (c.gain == null) return undefined; value = Math.min(66, Math.max(-6, Math.round(value))); }
+    else value = !!value;
+    c[key] = value;
+    return value;
+  }
+  // Envíos de los canales a un auxiliar (mezcla de monitores): null si ese bus no tiene envíos
+  sendsOf(bus) { return this.sends && this.sends[bus] ? this.sends[bus].map((s) => ({ ...s })) : null; }
+  watchSends() {} // el simulador ya los tiene todos
+  setSend(bus, i, key, value) {
+    const s = this.sends && this.sends[bus] && this.sends[bus][i];
+    if (!s || !['level', 'on'].includes(key)) return undefined;
+    s[key] = key === 'on' ? !!value : value === -Infinity || value <= -90 ? -Infinity : Math.min(10, Math.round(value * 10) / 10);
+    return s[key];
   }
 
   // SIM_LINECHECK=1: simula un line check con fallos a propósito.
@@ -118,7 +168,7 @@ class Simulator extends EventEmitter {
     return [ch, bus, [-90, -90]];
   }
 
-  stop() { clearInterval(this.timer); }
+  stop() { clearInterval(this.timer); clearInterval(this.sceneTimer); }
 }
 
 module.exports = Simulator;

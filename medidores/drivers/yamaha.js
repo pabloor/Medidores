@@ -39,6 +39,15 @@ function gainProfile(model) {
   return null;
 }
 
+// Reducción de ganancia (puerta y compresor) de los canales de entrada. Yamaha no la documenta para RCP: al conectar se pide a
+// la mesa su lista de medidores (mtrinfo, igual que prminfo para los parámetros) y se usan los de InCh que parezcan de reducción
+// de ganancia; si la mesa no admite mtrinfo, se prueban estos nombres. SIN VERIFICAR con una mesa real: la lista que da la mesa
+// se ve con tools/volcar-parametros.js. Escala: si los valores parecen dB de reducción (≤ 60) se toman tal cual; si no, como los
+// niveles (126 = sin reducción).
+const GR_GUESS = ['MIXER:Current/InCh/Dyna1GR', 'MIXER:Current/InCh/Dyna2GR', 'MIXER:Current/InCh/Dyna1/GR', 'MIXER:Current/InCh/Dyna2/GR',
+  'MIXER:Current/InCh/GateGR', 'MIXER:Current/InCh/CompGR'];
+const grKind = (addr) => (/Gate|Dyna1/i.test(addr) ? 'gate' : 'comp'); // en las Yamaha, Dynamics 1 suele ser la puerta y Dynamics 2 el compresor
+
 const FADER = { ch: 'MIXER:Current/InCh/Fader', main: 'MIXER:Current/St/Fader', bus: 'MIXER:Current/Mix/Fader', mtx: 'MIXER:Current/Mtrx/Fader',
   vca: 'MIXER:Current/DCA/Fader' }; // grupos DCA: se leen como los Mix; si la mesa no los reconoce, la lista queda vacía
 
@@ -101,6 +110,7 @@ class Yamaha extends EventEmitter {
       const info = await this.request('devinfo productname', 'devinfo');
       if (info.ok) this.model = info.t[3] || '';
       for (const g of GROUPS) await this.subscribeGroup(g);
+      await this.findGr();
       this.renewTimer = setInterval(() => this.renew(), RENEW_MS);
       this.linkTimer = setInterval(() => this.refreshLinks(), 5000);
     });
@@ -133,7 +143,35 @@ class Yamaha extends EventEmitter {
     clearInterval(this.renewTimer);
     clearInterval(this.linkTimer);
     this.refreshing = false;
+    this.gr = { subs: [], comp: [], gate: [], scale: null, dirty: false };
+    this.mtrList = [];
     if (this.sock) { this.sock.removeAllListeners(); this.sock.destroy(); }
+  }
+
+  async findGr() {
+    let miss = 0;
+    for (let n = 0; n < 200 && miss < 3; n++) {
+      const r = await this.request(`mtrinfo ${n}`, 'mtrinfo');
+      if (!r.ok) { miss++; continue; }
+      miss = 0;
+      if (r.t[3]) this.mtrList.push(r.t[3]);
+    }
+    const listed = this.mtrList.filter((a) => /^MIXER:Current\/InCh\//.test(a) && /GR|Gain ?Red|Reduction/i.test(a));
+    for (const addr of listed.length ? listed : GR_GUESS) {
+      if (this.gr.subs.some((x) => x.kind === grKind(addr))) continue;
+      const r = await this.request(`mtrstart ${addr} ${INTERVAL_MS}`, 'mtrstart');
+      if (r.ok) this.gr.subs.push({ kind: grKind(addr), addr });
+    }
+    if (this.gr.subs.length) console.log(`[yamaha] medidores de reducción de ganancia: ${this.gr.subs.map((x) => `${x.kind} ${x.addr}`).join(', ')}`);
+  }
+  onGr(sub, rest) {
+    const hex = rest.filter((v) => /^[0-9a-fA-F]{1,2}$/.test(v)).map((v) => parseInt(v, 16));
+    if (!hex.length) return;
+    if (!this.gr.scale) this.gr.scale = Math.max(...hex) <= 60 ? 'db' : 'level';
+    this.gr[sub.kind] = hex.map((v) => (this.gr.scale === 'db' ? v : Math.max(0, 126 - v)));
+    this.raw = this.raw || {};
+    this.raw[sub.addr] = this.gr[sub.kind];
+    if (!this.gr.dirty) { this.gr.dirty = true; setTimeout(() => { this.gr.dirty = false; this.emit('gr', { comp: this.gr.comp, gate: this.gr.gate }); }, 100); }
   }
 
   send(line) {
@@ -195,6 +233,7 @@ class Yamaha extends EventEmitter {
       const s = this.sub[g.id];
       if (s) this.send(`mtrstart ${g.path}/${s.pick} ${INTERVAL_MS}`);
     }
+    for (const x of this.gr.subs) this.send(`mtrstart ${x.addr} ${INTERVAL_MS}`);
   }
 
   onLine(line) {
@@ -213,6 +252,8 @@ class Yamaha extends EventEmitter {
   }
 
   onMeters(address, rest) {
+    const gs = this.gr.subs.find((x) => x.addr === address);
+    if (gs) return this.onGr(gs, rest);
     const g = GROUPS.find((x) => address === `${x.path}/${this.sub[x.id]?.pick}`);
     if (!g) return;
     const hex = rest.filter((v) => /^[0-9a-fA-F]{1,2}$/.test(v)).map((v) => parseInt(v, 16));

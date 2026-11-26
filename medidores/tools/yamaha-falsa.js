@@ -56,6 +56,10 @@ net.createServer((c) => {
         const grp = addr.split('/')[1];
         if (METERS[grp] && !(MODEL === 'CL5' && !addr.endsWith('PostOn'))) { subs[addr] = [METERS[grp], Date.now() + 10000]; c.write(`OK mtrstart ${addr}\n`); }
         else c.write('ERROR mtrstart UnknownAddress\n');
+      } else if (cmd === 'mtrinfo') { // lista de medidores (los de reducción de ganancia son una suposición, como en el driver)
+        const list = ['MIXER:Current/InCh/PreHPF', 'MIXER:Current/InCh/PreFader', 'MIXER:Current/InCh/PostOn', 'MIXER:Current/InCh/Dyna1GR', 'MIXER:Current/InCh/Dyna2GR'];
+        const n = Number(addr);
+        c.write(list[n] ? `OK mtrinfo ${n} "${list[n]}" ${CH} 1\n` : 'ERROR mtrinfo InvalidArgument\n');
       } else if (cmd === 'prminfo') {
         const list = ['"MIXER:Current/InCh/Fader/Level" 72 1 -32768 1000 -32768 "dB" integer any rw 100',
           '"MIXER:Current/InputChLink/InCh/Assign" 72 1 0 52 0 "" integer any rw 1'];
