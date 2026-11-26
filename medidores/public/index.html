@@ -577,6 +577,8 @@
   .scene-chip { flex: 0 1 auto; min-width: 0; max-width: 30vw; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 8px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
   .scene-chip[hidden] { display: none; }
   .modes button[hidden] { display: none; }
+  #modeMix .sh { display: none; }
+  @media (max-width: 600px) { #modeMix .lg { display: none; } #modeMix .sh { display: inline; } .scene-chip { display: none; } } /* en el móvil no cabe todo arriba */
   #wlBtn { position: relative; }
   #wlBtn .badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--hot); color: #fff; font-size: 12px; font-weight: 600; line-height: 18px; text-align: center; }
   #wlBtn .badge[hidden] { display: none; }
@@ -642,7 +644,7 @@
   <div class="modes" id="modes" hidden>
     <button data-mode="meters" aria-pressed="true" data-i18n="mode.meters"></button>
     <button data-mode="control" aria-pressed="false" data-i18n="mode.control"></button>
-    <button data-mode="mix" id="modeMix" aria-pressed="false" data-i18n="mode.mix" hidden></button>
+    <button data-mode="mix" id="modeMix" aria-pressed="false" data-i18n-title="mode.mix" hidden><span class="lg" data-i18n="mode.mix"></span><span class="sh" data-i18n="mode.mixShort"></span></button>
   </div>
   <button class="scene-chip" id="sceneChip" type="button" hidden></button>
   <button class="icon-btn" id="clearPeaks" data-i18n-aria="btn.resetClips">
